@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     register-context-menu.ps1 で登録した Gitwit のコンテキストメニュー項目を削除する。
 #>

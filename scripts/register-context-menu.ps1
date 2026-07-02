@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Windows Explorer の右クリックメニューに Gitwit の「履歴を表示」項目を登録する。
 
