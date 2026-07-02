@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::{
-    commit::{load_commits, CommitInfo},
+    commit::{load_commits, load_commits_for_path, CommitInfo},
     diff::{load_diff_files, load_diff_hunks, DiffFile, DiffHunk},
     GitError,
 };
@@ -20,6 +20,14 @@ impl GitRepository {
 
     pub fn load_commits(&self, limit: usize) -> Result<Vec<CommitInfo>, GitError> {
         load_commits(&self.inner, limit)
+    }
+
+    pub fn load_commits_for_path(
+        &self,
+        limit: usize,
+        path: &str,
+    ) -> Result<Vec<CommitInfo>, GitError> {
+        load_commits_for_path(&self.inner, limit, path)
     }
 
     pub fn load_diff_files(&self, oid_str: &str) -> Result<Vec<DiffFile>, GitError> {

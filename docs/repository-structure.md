@@ -7,6 +7,7 @@ git-client/
 ├── src/                        # ソースコード
 │   ├── main.rs                 # エントリーポイント（eframe 起動）
 │   ├── app.rs                  # AppState・メインループ
+│   ├── cli.rs                  # CLI引数(ファイル/フォルダパス)のリポジトリルート解決
 │   ├── config.rs               # 設定ファイルの読み書き
 │   ├── git/                    # Git ロジックレイヤー
 │   │   ├── mod.rs
@@ -18,6 +19,9 @@ git-client/
 │       ├── toolbar.rs          # ToolbarPanel
 │       ├── commit_list.rs      # CommitListPanel
 │       └── diff_panel.rs       # DiffPanel（ファイル一覧 + diff 表示）
+├── scripts/                    # 補助スクリプト
+│   ├── register-context-menu.ps1    # Explorer右クリックメニュー登録(HKCU)
+│   └── unregister-context-menu.ps1  # 登録解除
 ├── tests/                      # 統合テスト
 │   └── git_integration.rs      # テスト用リポジトリを使った統合テスト
 ├── docs/                       # プロジェクトドキュメント
@@ -65,6 +69,18 @@ git-client/
 **依存関係**:
 - 依存可能: `crate::git`、`crate::ui`、`crate::config`
 - 依存禁止: なし（最上位の統合レイヤー）
+
+#### src/cli.rs
+
+**役割**: Explorer 右クリック等から渡されたCLI引数(ファイル/フォルダの絶対パス)を、Git リポジトリルートと(ファイル指定時のみ)そのファイルの相対パスに解決する。
+
+**配置内容**:
+- `CliTarget` 構造体
+- `resolve_target(raw_path: &Path) -> Result<CliTarget, GitError>`
+
+**依存関係**:
+- 依存可能: `crate::git`（`GitError` を利用）
+- 依存禁止: `crate::ui`
 
 #### src/config.rs
 

@@ -33,29 +33,96 @@ pub(super) fn load_commits(repo: &Repository, limit: usize) -> Result<Vec<Commit
     let mut commits = Vec::new();
     for oid in revwalk.take(limit) {
         let oid = oid.map_err(GitError::Git2)?;
-        let commit = repo.find_commit(oid).map_err(GitError::Git2)?;
-
-        let oid_str = oid.to_string();
-        let short_id = oid_str[..7].to_string();
-        let message = commit
-            .summary()
-            .unwrap_or("(メッセージなし)")
-            .to_string();
-        let author = commit.author().name().unwrap_or("Unknown").to_string();
-        let time = commit.time().seconds();
-        let commit_refs = refs.get(&oid).cloned().unwrap_or_default();
-
-        commits.push(CommitInfo {
-            oid: oid_str,
-            short_id,
-            message,
-            author,
-            time,
-            refs: commit_refs,
-        });
+        commits.push(build_commit_info(repo, oid, &refs)?);
     }
 
     Ok(commits)
+}
+
+/// 指定パスが変更されたコミットのみを対象にコミット一覧を構築する。
+///
+/// `limit` は「マッチしたコミット数」の上限であり、走査するコミット総数の上限ではない。
+pub(super) fn load_commits_for_path(
+    repo: &Repository,
+    limit: usize,
+    path: &str,
+) -> Result<Vec<CommitInfo>, GitError> {
+    let refs = collect_refs(repo);
+
+    let mut revwalk = repo.revwalk().map_err(GitError::Git2)?;
+    revwalk.push_head().map_err(|e| {
+        if e.code() == git2::ErrorCode::UnbornBranch {
+            GitError::EmptyRepository
+        } else {
+            GitError::Git2(e)
+        }
+    })?;
+    revwalk
+        .set_sorting(git2::Sort::TIME)
+        .map_err(GitError::Git2)?;
+
+    let mut commits = Vec::new();
+    for oid in revwalk {
+        if commits.len() >= limit {
+            break;
+        }
+        let oid = oid.map_err(GitError::Git2)?;
+        let commit = repo.find_commit(oid).map_err(GitError::Git2)?;
+
+        if !commit_touches_path(repo, &commit, path)? {
+            continue;
+        }
+
+        commits.push(build_commit_info(repo, oid, &refs)?);
+    }
+
+    Ok(commits)
+}
+
+fn build_commit_info(
+    repo: &Repository,
+    oid: git2::Oid,
+    refs: &HashMap<git2::Oid, Vec<String>>,
+) -> Result<CommitInfo, GitError> {
+    let commit = repo.find_commit(oid).map_err(GitError::Git2)?;
+
+    let oid_str = oid.to_string();
+    let short_id = oid_str[..7].to_string();
+    let message = commit
+        .summary()
+        .unwrap_or("(メッセージなし)")
+        .to_string();
+    let author = commit.author().name().unwrap_or("Unknown").to_string();
+    let time = commit.time().seconds();
+    let commit_refs = refs.get(&oid).cloned().unwrap_or_default();
+
+    Ok(CommitInfo {
+        oid: oid_str,
+        short_id,
+        message,
+        author,
+        time,
+        refs: commit_refs,
+    })
+}
+
+fn commit_touches_path(
+    repo: &Repository,
+    commit: &git2::Commit,
+    path: &str,
+) -> Result<bool, GitError> {
+    let new_tree = commit.tree().map_err(GitError::Git2)?;
+    let old_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
+
+    let mut opts = git2::DiffOptions::new();
+    opts.pathspec(path);
+
+    let diff = repo
+        .diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))
+        .map_err(GitError::Git2)?;
+
+    #[allow(clippy::len_zero)] // git2::Deltas の is_empty() は unstable feature (exact_size_is_empty)
+    Ok(diff.deltas().len() > 0)
 }
 
 fn collect_refs(repo: &Repository) -> HashMap<git2::Oid, Vec<String>> {

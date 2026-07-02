@@ -23,5 +23,18 @@ pub fn show_toolbar(ui: &mut Ui, state: &mut AppState) {
                     .small(),
             );
         }
+
+        if let Some(filter_path) = state.file_filter.clone() {
+            ui.separator();
+            ui.label(
+                egui::RichText::new(format!("履歴フィルタ: {}", filter_path))
+                    .color(egui::Color32::from_rgb(0, 117, 202))
+                    .small(),
+            );
+            if ui.small_button("✕").clicked() {
+                state.file_filter = None;
+                state.needs_load = true;
+            }
+        }
     });
 }
