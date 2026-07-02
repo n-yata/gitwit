@@ -53,5 +53,6 @@ Register-ContextMenuEntry -KeyPath "HKCU:\Software\Classes\Directory\shell" -Com
 # フォルダの背景(空白部分)を右クリックしたとき
 Register-ContextMenuEntry -KeyPath "HKCU:\Software\Classes\Directory\Background\shell" -CommandArg "%V"
 
-Write-Host "`nコンテキストメニューの登録が完了しました。Explorerで右クリックして確認してください。"
+Write-Host "`nコンテキストメニューの登録が完了しました。"
+Write-Host "Windows 11では既定のメニューに直接表示されず、「その他のオプションを表示」の先に表示されます。"
 Write-Host "解除する場合は unregister-context-menu.ps1 を実行してください。"
