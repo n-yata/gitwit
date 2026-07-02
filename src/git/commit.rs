@@ -200,4 +200,70 @@ mod tests {
         let result = format_relative_time(now - 60 * 24 * 60 * 60);
         assert!(result.contains('-'), "Should be date format, got: {}", result);
     }
+
+    fn commit_file(repo: &Repository, path: &str, message: &str) {
+        let full_path = repo.workdir().unwrap().join(path);
+        std::fs::create_dir_all(full_path.parent().unwrap()).unwrap();
+        std::fs::write(&full_path, message).unwrap();
+
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new(path)).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = git2::Signature::now("tester", "tester@example.com").unwrap();
+        let parents: Vec<git2::Commit> = repo
+            .head()
+            .ok()
+            .and_then(|h| h.peel_to_commit().ok())
+            .into_iter()
+            .collect();
+        let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
+        repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parent_refs)
+            .unwrap();
+    }
+
+    #[test]
+    fn load_commits_for_path_filters_by_directory() {
+        let tmp = std::env::temp_dir().join(format!(
+            "gitwit-commit-test-dir-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let repo = Repository::init(&tmp).unwrap();
+
+        commit_file(&repo, "src/main.rs", "add main.rs");
+        commit_file(&repo, "docs/readme.md", "add readme");
+        commit_file(&repo, "src/lib.rs", "add lib.rs");
+
+        let commits = load_commits_for_path(&repo, 10, "src").unwrap();
+
+        assert_eq!(commits.len(), 2);
+        assert!(commits.iter().all(|c| c.message != "add readme"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn load_commits_for_path_filters_by_file() {
+        let tmp = std::env::temp_dir().join(format!(
+            "gitwit-commit-test-file-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let repo = Repository::init(&tmp).unwrap();
+
+        commit_file(&repo, "src/main.rs", "add main.rs");
+        commit_file(&repo, "src/lib.rs", "add lib.rs");
+        commit_file(&repo, "src/main.rs", "update main.rs");
+
+        let commits = load_commits_for_path(&repo, 10, "src/main.rs").unwrap();
+
+        assert_eq!(commits.len(), 2);
+        assert!(commits.iter().all(|c| c.message != "add lib.rs"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

@@ -81,7 +81,25 @@
 ## フェーズ7: ドキュメント更新
 
 - [x] `docs/repository-structure.md` に `src/cli.rs`, `scripts/` を反映(必要に応じて)
-- [ ] 実装後の振り返りを記録（別ファイル `retrospective.md` に記録 → モード3）
+- [x] 実装後の振り返りを記録（別ファイル `retrospective.md` に記録 → モード3）
+
+## フェーズ8: 実機確認からのスコープ修正(サブフォルダのパスフィルタ対応)
+
+実機確認で「フォルダを右クリックしても配下の差分だけに絞り込まれない」という
+フィードバックがあり、ユーザーの意思確認のうえ仕様を拡張した:
+サブフォルダ指定時も(リポジトリルート自身を除き)パスフィルタを適用する。
+
+- [x] `src/cli.rs`: `resolve_target` を修正し、ファイル/サブフォルダのどちらでも
+      workdir からの相対パスを計算するよう変更(リポジトリルート自身の場合のみ `None`)
+- [x] `src/cli.rs`: テストを更新(`resolve_target_with_repo_root_has_no_filter` に改名 +
+      `resolve_target_with_subfolder_computes_relative_path` を追加)
+- [x] `src/git/commit.rs`: `load_commits_for_path` がディレクトリのpathspecでも
+      正しく絞り込めることを検証するユニットテストを追加
+      (`load_commits_for_path_filters_by_directory`, `load_commits_for_path_filters_by_file`)
+- [x] `.steering/20260703-explorer-context-menu/requirements.md` の仕様記述・受け入れ条件を更新
+- [x] `.steering/20260703-explorer-context-menu/design.md` の該当箇所を更新
+- [x] `cargo test` で全11テストが通ることを確認
+- [ ] 実機でサブフォルダ右クリック→履歴表示を再確認
 
 ---
 

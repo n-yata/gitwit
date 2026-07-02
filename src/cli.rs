@@ -9,14 +9,14 @@ pub struct CliTarget {
 }
 
 /// Explorer 等から渡されたファイル/フォルダパスを、リポジトリルートと
-/// (ファイル指定時のみ)そのファイルの相対パスに解決する。
+/// そのパス配下の変更に絞り込むためのフィルタ(リポジトリルート自体が
+/// 指定された場合は `None`)に解決する。
 pub fn resolve_target(raw_path: &Path) -> Result<CliTarget, GitError> {
     let canonical = raw_path
         .canonicalize()
         .map_err(|e| GitError::NotARepository(format!("{}: {}", raw_path.display(), e)))?;
 
-    let is_file = canonical.is_file();
-    let search_start: &Path = if is_file {
+    let search_start: &Path = if canonical.is_file() {
         canonical.parent().unwrap_or(&canonical)
     } else {
         &canonical
@@ -31,17 +31,18 @@ pub fn resolve_target(raw_path: &Path) -> Result<CliTarget, GitError> {
         .canonicalize()
         .map_err(|e| GitError::NotARepository(e.to_string()))?;
 
-    let file_filter = if is_file {
-        let relative = canonical.strip_prefix(&workdir).map_err(|_| {
-            GitError::NotARepository(format!(
-                "{}: リポジトリ({})の外にあるファイルです",
-                canonical.display(),
-                workdir.display()
-            ))
-        })?;
-        Some(relative.to_string_lossy().replace('\\', "/"))
-    } else {
+    let relative = canonical.strip_prefix(&workdir).map_err(|_| {
+        GitError::NotARepository(format!(
+            "{}: リポジトリ({})の外にあるパスです",
+            canonical.display(),
+            workdir.display()
+        ))
+    })?;
+
+    let file_filter = if relative.as_os_str().is_empty() {
         None
+    } else {
+        Some(relative.to_string_lossy().replace('\\', "/"))
     };
 
     Ok(CliTarget {
@@ -88,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_target_with_folder_has_no_filter() {
+    fn resolve_target_with_repo_root_has_no_filter() {
         let tmp = std::env::temp_dir().join(format!("gitwit-cli-test-dir-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
@@ -97,6 +98,20 @@ mod tests {
         let target = resolve_target(&tmp).unwrap();
 
         assert!(target.file_filter.is_none());
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn resolve_target_with_subfolder_computes_relative_path() {
+        let tmp = std::env::temp_dir().join(format!("gitwit-cli-test-subdir-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(tmp.join("src")).unwrap();
+        init_repo_with_commit(&tmp, "src/main.rs");
+
+        let target = resolve_target(&tmp.join("src")).unwrap();
+
+        assert_eq!(target.file_filter.as_deref(), Some("src"));
 
         let _ = fs::remove_dir_all(&tmp);
     }

@@ -38,8 +38,8 @@ scripts/register-context-menu.ps1 / unregister-context-menu.ps1
 
 **実装の要点**:
 - `git2::Repository::discover(path)` を使い、指定パス(またはその親)から上方向に `.git` を探索してリポジトリを取得する。単純な `Repository::open` は完全一致パスしか受け付けないため使わない。
-- 入力パスがファイルかどうかは `std::fs::metadata` で判定する。
-- ファイル指定の場合、リポジトリの `workdir()` からの相対パスを計算し、区切り文字を `/` に統一する(git の内部パス表現に合わせる)。
+- 入力パスがファイルかどうかは `Path::canonicalize` 後の `is_file()` で判定する(探索開始位置の決定にのみ使う)。
+- リポジトリの `workdir()` からの相対パスを計算し、区切り文字を `/` に統一する(git の内部パス表現に合わせる)。**ファイル・サブフォルダのどちらでも計算する**(相対パスが空文字列 = リポジトリルート自身を指定した場合のみ `file_filter` を `None` にする)。git の pathspec はディレクトリ指定時にその配下全体へマッチするため、`load_commits_for_path` はファイル/フォルダのどちらの相対パスを渡しても正しく動作する。
 - 戻り値: `CliTarget { repo_root: PathBuf, file_filter: Option<String> }`
 - パスが存在しない/リポジトリが見つからない場合は `GitError` を返し、呼び出し側(App)がトーストと同じ `error_message` 表示に流用する。
 
