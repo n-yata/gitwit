@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::{
+    cli::resolve_target,
     config::{load_config, save_config, AppConfig},
     git::{CommitInfo, DiffFile, DiffHunk, GitRepository},
     ui::{commit_list::show_commit_list, diff_panel::show_diff_panel, toolbar::show_toolbar},
@@ -27,16 +28,28 @@ pub struct AppState {
     pub error_message: Option<String>,
     pub split_x: f32,
     pub diff_split_y: f32,
+    /// Explorer 右クリック等から特定ファイルを指定して起動した場合の絞り込み対象パス。
+    pub file_filter: Option<String>,
 }
 
 impl AppState {
-    fn new() -> Self {
+    fn new(cli_target: Option<PathBuf>) -> Self {
         let config = load_config();
-        let (repo_path, path_input, needs_load) = if let Some(p) = config.last_repo_path {
-            let path = PathBuf::from(&p);
-            (Some(path), p, true)
-        } else {
-            (None, String::new(), false)
+
+        let mut error_message = None;
+        let mut file_filter = None;
+
+        let (repo_path, path_input, needs_load) = match cli_target.as_deref().map(resolve_target) {
+            Some(Ok(target)) => {
+                file_filter = target.file_filter;
+                let path_input = target.repo_root.to_string_lossy().to_string();
+                (Some(target.repo_root), path_input, true)
+            }
+            Some(Err(e)) => {
+                error_message = Some(e.to_string());
+                repo_path_from_config(&config)
+            }
+            None => repo_path_from_config(&config),
         };
 
         Self {
@@ -50,18 +63,28 @@ impl AppState {
             needs_load,
             needs_diff_load: false,
             needs_file_load: false,
-            error_message: None,
+            error_message,
             split_x: 380.0,
             diff_split_y: 160.0,
+            file_filter,
         }
     }
 }
 
+fn repo_path_from_config(config: &AppConfig) -> (Option<PathBuf>, String, bool) {
+    if let Some(p) = config.last_repo_path.clone() {
+        let path = PathBuf::from(&p);
+        (Some(path), p, true)
+    } else {
+        (None, String::new(), false)
+    }
+}
+
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, cli_target: Option<PathBuf>) -> Self {
         setup_japanese_font(&cc.egui_ctx);
         Self {
-            state: AppState::new(),
+            state: AppState::new(cli_target),
             repo: None,
         }
     }
@@ -69,7 +92,7 @@ impl App {
     fn load_repo(&mut self) {
         let path = PathBuf::from(self.state.path_input.trim());
         match GitRepository::open(&path) {
-            Ok(repo) => match repo.load_commits(COMMIT_LIMIT) {
+            Ok(repo) => match self.load_commits_for_state(&repo) {
                 Ok(commits) => {
                     self.state.repo_path = Some(path.clone());
                     self.state.commits = commits;
@@ -94,6 +117,16 @@ impl App {
                 self.state.commits = Vec::new();
                 self.repo = None;
             }
+        }
+    }
+
+    fn load_commits_for_state(
+        &self,
+        repo: &GitRepository,
+    ) -> Result<Vec<CommitInfo>, crate::git::GitError> {
+        match &self.state.file_filter {
+            Some(path) => repo.load_commits_for_path(COMMIT_LIMIT, path),
+            None => repo.load_commits(COMMIT_LIMIT),
         }
     }
 
