@@ -2,7 +2,7 @@ use egui::{Color32, RichText, Ui};
 
 use crate::{
     app::AppState,
-    git::{DiffLineKind, FileStatus},
+    git::{DiffLine, DiffLineKind, FileStatus},
 };
 
 const COLOR_ADDED_BG: Color32 = Color32::from_rgb(221, 244, 220);
@@ -18,6 +18,83 @@ const COLOR_ADDED_BADGE: Color32 = Color32::from_rgb(40, 167, 69);
 const COLOR_DELETED_BADGE: Color32 = Color32::from_rgb(209, 36, 47);
 const COLOR_MODIFIED_BADGE: Color32 = Color32::from_rgb(0, 117, 202);
 const COLOR_RENAMED_BADGE: Color32 = Color32::from_rgb(108, 117, 125);
+const COLOR_EMPTY_BG: Color32 = Color32::from_rgb(240, 240, 240);
+
+/// 左右比較（修正前/修正後）の1行分のセル。
+enum SideCell<'a> {
+    Empty,
+    Line(&'a DiffLine),
+}
+
+/// hunk内の行列を「修正前(左) / 修正後(右)」の行ペアに組み替える。
+///
+/// 連続する Deleted 行のまとまりと、それに続く連続する Added 行のまとまりを
+/// 行単位で左右にペアリングする（数が合わない場合は空セルで埋める）。
+fn build_side_by_side_rows(lines: &[DiffLine]) -> Vec<(SideCell<'_>, SideCell<'_>)> {
+    let mut rows = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        match lines[i].kind {
+            DiffLineKind::Context => {
+                rows.push((SideCell::Line(&lines[i]), SideCell::Line(&lines[i])));
+                i += 1;
+            }
+            DiffLineKind::Deleted | DiffLineKind::Added => {
+                let mut deleted = Vec::new();
+                while i < lines.len() && lines[i].kind == DiffLineKind::Deleted {
+                    deleted.push(&lines[i]);
+                    i += 1;
+                }
+                let mut added = Vec::new();
+                while i < lines.len() && lines[i].kind == DiffLineKind::Added {
+                    added.push(&lines[i]);
+                    i += 1;
+                }
+                let max_len = deleted.len().max(added.len());
+                for j in 0..max_len {
+                    let left = deleted.get(j).map(|l| SideCell::Line(l)).unwrap_or(SideCell::Empty);
+                    let right = added.get(j).map(|l| SideCell::Line(l)).unwrap_or(SideCell::Empty);
+                    rows.push((left, right));
+                }
+            }
+        }
+    }
+    rows
+}
+
+fn render_side_cell(ui: &mut Ui, cell: &SideCell<'_>) {
+    ui.set_width(ui.available_width());
+    match cell {
+        SideCell::Empty => {
+            egui::Frame::new()
+                .fill(COLOR_EMPTY_BG)
+                .inner_margin(egui::Margin::symmetric(6, 1))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(" ");
+                });
+        }
+        SideCell::Line(line) => {
+            let (bg, text_color, prefix) = match line.kind {
+                DiffLineKind::Added => (COLOR_ADDED_BG, COLOR_ADDED_TEXT, "+"),
+                DiffLineKind::Deleted => (COLOR_DELETED_BG, COLOR_DELETED_TEXT, "-"),
+                DiffLineKind::Context => (COLOR_CONTEXT_BG, Color32::DARK_GRAY, " "),
+            };
+            egui::Frame::new()
+                .fill(bg)
+                .inner_margin(egui::Margin::symmetric(6, 1))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(
+                        RichText::new(format!("{}{}", prefix, line.content))
+                            .color(text_color)
+                            .monospace()
+                            .size(12.0),
+                    );
+                });
+        }
+    }
+}
 
 pub fn show_diff_panel(ui: &mut Ui, state: &mut AppState) {
     if state.selected_commit.is_none() {
@@ -31,16 +108,52 @@ pub fn show_diff_panel(ui: &mut Ui, state: &mut AppState) {
         return;
     }
 
-    let available_height = ui.available_height();
-    let file_list_height = (available_height * 0.28).clamp(80.0, 240.0);
+    let available = ui.available_rect_before_wrap();
+    let min_pane = 60.0_f32;
+    let file_list_height = state
+        .diff_split_y
+        .max(min_pane)
+        .min(available.height() - min_pane);
+    let sep_screen_y = available.top() + file_list_height;
 
-    ui.allocate_ui(egui::vec2(ui.available_width(), file_list_height), |ui| {
+    // ドラッグ可能なセパレータ
+    let sep_rect = egui::Rect::from_min_max(
+        egui::pos2(available.left(), sep_screen_y - 4.0),
+        egui::pos2(available.right(), sep_screen_y + 4.0),
+    );
+    let sep_resp = ui.interact(sep_rect, ui.id().with("diff_split_sep"), egui::Sense::drag());
+    if sep_resp.dragged() {
+        state.diff_split_y = (file_list_height + sep_resp.drag_delta().y)
+            .max(min_pane)
+            .min(available.height() - min_pane);
+    }
+    let _ = sep_resp.on_hover_cursor(egui::CursorIcon::ResizeVertical);
+
+    ui.painter().hline(
+        available.left()..=available.right(),
+        sep_screen_y,
+        egui::Stroke::new(1.0, Color32::from_gray(210)),
+    );
+
+    // 上: 変更ファイル一覧
+    let top_rect = egui::Rect::from_min_max(
+        available.min,
+        egui::pos2(available.right(), sep_screen_y - 4.0),
+    );
+    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(top_rect), |ui| {
+        ui.set_clip_rect(top_rect.intersect(ui.clip_rect()));
         show_file_list(ui, state);
     });
 
-    ui.separator();
-
-    show_diff_view(ui, state);
+    // 下: コード差分
+    let bottom_rect = egui::Rect::from_min_max(
+        egui::pos2(available.left(), sep_screen_y + 4.0),
+        available.max,
+    );
+    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(bottom_rect), |ui| {
+        ui.set_clip_rect(bottom_rect.intersect(ui.clip_rect()));
+        show_diff_view(ui, state);
+    });
 }
 
 fn show_file_list(ui: &mut Ui, state: &mut AppState) {
@@ -173,14 +286,12 @@ fn show_diff_view(ui: &mut Ui, state: &mut AppState) {
 
     egui::ScrollArea::both()
         .id_salt("diff_view_scroll")
-
         .show(ui, |ui| {
-            for hunk in &state.diff_hunks {
+            for (hunk_idx, hunk) in state.diff_hunks.iter().enumerate() {
                 egui::Frame::new()
                     .fill(COLOR_HUNK_HEADER_BG)
                     .inner_margin(egui::Margin::symmetric(6, 2))
                     .show(ui, |ui| {
-
                         ui.label(
                             RichText::new(&hunk.header)
                                 .color(COLOR_HUNK_HEADER_TEXT)
@@ -189,25 +300,16 @@ fn show_diff_view(ui: &mut Ui, state: &mut AppState) {
                         );
                     });
 
-                for line in &hunk.lines {
-                    let (bg, text_color, prefix) = match line.kind {
-                        DiffLineKind::Added => (COLOR_ADDED_BG, COLOR_ADDED_TEXT, "+"),
-                        DiffLineKind::Deleted => (COLOR_DELETED_BG, COLOR_DELETED_TEXT, "-"),
-                        DiffLineKind::Context => (COLOR_CONTEXT_BG, Color32::DARK_GRAY, " "),
-                    };
-                    egui::Frame::new()
-                        .fill(bg)
-                        .inner_margin(egui::Margin::symmetric(6, 1))
-                        .show(ui, |ui| {
-    
-                            ui.label(
-                                RichText::new(format!("{}{}", prefix, line.content))
-                                    .color(text_color)
-                                    .monospace()
-                                    .size(12.0),
-                            );
-                        });
-                }
+                let rows = build_side_by_side_rows(&hunk.lines);
+
+                ui.push_id(hunk_idx, |ui| {
+                    ui.columns(2, |columns| {
+                        for (left, right) in &rows {
+                            render_side_cell(&mut columns[0], left);
+                            render_side_cell(&mut columns[1], right);
+                        }
+                    });
+                });
 
                 ui.add_space(4.0);
             }

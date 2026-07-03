@@ -26,6 +26,7 @@ pub struct AppState {
     pub needs_file_load: bool,
     pub error_message: Option<String>,
     pub split_x: f32,
+    pub diff_split_y: f32,
 }
 
 impl AppState {
@@ -51,6 +52,7 @@ impl AppState {
             needs_file_load: false,
             error_message: None,
             split_x: 380.0,
+            diff_split_y: 160.0,
         }
     }
 }

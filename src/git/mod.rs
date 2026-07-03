@@ -3,7 +3,7 @@ pub mod diff;
 pub mod repository;
 
 pub use commit::{format_relative_time, CommitInfo};
-pub use diff::{DiffFile, DiffHunk, DiffLineKind, FileStatus};
+pub use diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind, FileStatus};
 pub use repository::GitRepository;
 
 use std::fmt;
