@@ -27,6 +27,7 @@ pub struct AppState {
     pub needs_file_load: bool,
     pub error_message: Option<String>,
     pub split_x: f32,
+    pub diff_split_y: f32,
     /// Explorer 右クリック等から特定ファイルを指定して起動した場合の絞り込み対象パス。
     pub file_filter: Option<String>,
 }
@@ -64,6 +65,7 @@ impl AppState {
             needs_file_load: false,
             error_message,
             split_x: 380.0,
+            diff_split_y: 160.0,
             file_filter,
         }
     }
