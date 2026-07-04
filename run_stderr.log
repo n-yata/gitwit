@@ -1,3 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.45s
-     Running `C:\develop\workspace-claude\git-client\target\debug\gitwit.exe`
-error: process didn't exit successfully: `C:\develop\workspace-claude\git-client\target\debug\gitwit.exe` (exit code: 0xffffffff)
