@@ -87,7 +87,7 @@ struct AppState {
     repo_path: Option<PathBuf>,         // 現在開いているリポジトリパス
     path_input: String,                 // ツールバーのパス入力欄
     commits: Vec<CommitInfo>,           // コミット一覧
-    selected_commit: Option<usize>,     // 選択中のコミットインデックス
+    selected_commits: Vec<usize>,       // 選択中コミットのインデックス(クリック順、最大2件)
     diff_files: Vec<DiffFile>,          // 選択コミットの変更ファイル一覧
     selected_file: Option<usize>,       // 選択中のファイルインデックス
     diff_hunks: Vec<DiffHunk>,          // 選択ファイルの差分
@@ -128,7 +128,8 @@ fn show_toolbar(ctx: &egui::Context, state: &mut AppState)
 **責務**:
 - コミット一覧をスクロール可能なリストで表示
 - 各行にハッシュ・メッセージ・著者・日時・ブランチ名を表示
-- クリックで `selected_commit` を更新し、diff 読み込みをトリガー
+- 通常クリックで `selected_commits` を単一選択(1件)に更新し、diff 読み込みをトリガー
+- Shift+クリックで `selected_commits` に追加し、最大2件のスライディング選択(3件目のShift+クリックで最も古いクリックの選択を追い出す)にする。2件選択時は時系列順(古い→新しい)でbase/targetを決定し、2コミット間の差分を読み込む
 
 **インターフェース**:
 ```rust
@@ -165,6 +166,9 @@ impl GitRepository {
     fn load_commits(&self, limit: usize) -> Result<Vec<CommitInfo>, GitError>;
     fn load_diff_files(&self, oid: &str) -> Result<Vec<DiffFile>, GitError>;
     fn load_diff_hunks(&self, oid: &str, path: &str) -> Result<Vec<DiffHunk>, GitError>;
+    // 2コミット間(base→target)の差分。base/targetの決定は呼び出し側(AppState)が時系列順で行う
+    fn load_diff_files_between(&self, base_oid: &str, target_oid: &str) -> Result<Vec<DiffFile>, GitError>;
+    fn load_diff_hunks_between(&self, base_oid: &str, target_oid: &str, path: &str) -> Result<Vec<DiffHunk>, GitError>;
 }
 ```
 
@@ -195,7 +199,7 @@ impl GitRepository {
 ユーザー      CommitListPanel    GitRepository      AppState
    |               |                 |                 |
    |-- コミット行クリック -->|           |                 |
-   |               |-- selected_commit 更新 ------------>|
+   |               |-- selected_commits 更新 ------------>|
    |               |-- load_diff_files(oid) -->|         |
    |               |                 |-- files --------->|
    |               |                 |  diff_files 更新  |
@@ -205,6 +209,21 @@ impl GitRepository {
    |               |                 |-- hunks -------->|
    |               |                 |  diff_hunks 更新 |
    |<-- diff 表示 --|               |                 |
+```
+
+### UC-3: Shift+クリックで2コミット間の差分を確認する
+
+```
+ユーザー      CommitListPanel    GitRepository      AppState
+   |               |                 |                 |
+   |-- コミット行Shift+クリック -->|     |                 |
+   |               |-- selected_commits に追加(最大2件) ->|
+   |               |-- selected_commits.len()==2 のため   |
+   |               |   commits[idx].time で古い→新しいを決定|
+   |               |-- load_diff_files_between(base, target) -->|
+   |               |                 |-- files --------->|
+   |               |                 |  diff_files 更新  |
+   |<-- ファイル一覧表示(2コミット間) --|                 |
 ```
 
 ## 画面遷移図

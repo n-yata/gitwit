@@ -18,7 +18,8 @@ pub struct AppState {
     pub repo_path: Option<PathBuf>,
     pub path_input: String,
     pub commits: Vec<CommitInfo>,
-    pub selected_commit: Option<usize>,
+    /// クリック順で保持する選択中コミットのindex。最大2件(3件目Shift+クリックで先頭を追い出すスライディング選択)。
+    pub selected_commits: Vec<usize>,
     pub diff_files: Vec<DiffFile>,
     pub selected_file: Option<usize>,
     pub diff_hunks: Vec<DiffHunk>,
@@ -56,7 +57,7 @@ impl AppState {
             repo_path,
             path_input,
             commits: Vec::new(),
-            selected_commit: None,
+            selected_commits: Vec::new(),
             diff_files: Vec::new(),
             selected_file: None,
             diff_hunks: Vec::new(),
@@ -68,6 +69,25 @@ impl AppState {
             diff_split_y: 160.0,
             file_filter,
         }
+    }
+}
+
+/// `selected` の長さに応じて、比較対象のoidを決定する。
+/// 2件選択時は `commits` 内でのindex(revwalkのTIMEソート順、0が最新)を履歴順の正として、
+/// indexが大きい方(古い)をbase、小さい方(新しい)をtargetとする。
+fn resolve_diff_oids(
+    commits: &[CommitInfo],
+    selected: &[usize],
+) -> Option<(String, Option<String>)> {
+    match selected {
+        [idx] => commits.get(*idx).map(|c| (c.oid.clone(), None)),
+        [idx_a, idx_b] => {
+            let a = commits.get(*idx_a)?;
+            let b = commits.get(*idx_b)?;
+            let (base, target) = if idx_a > idx_b { (a, b) } else { (b, a) };
+            Some((base.oid.clone(), Some(target.oid.clone())))
+        }
+        _ => None,
     }
 }
 
@@ -96,7 +116,7 @@ impl App {
                 Ok(commits) => {
                     self.state.repo_path = Some(path.clone());
                     self.state.commits = commits;
-                    self.state.selected_commit = None;
+                    self.state.selected_commits.clear();
                     self.state.diff_files = Vec::new();
                     self.state.selected_file = None;
                     self.state.diff_hunks = Vec::new();
@@ -130,17 +150,24 @@ impl App {
         }
     }
 
+    /// 選択中コミットのoidを、選択が2件の場合は履歴順(古い→新しい)で(base, target)として返す。
+    /// 選択が1件の場合はそのコミットのoidのみを返す。
+    fn selected_diff_oids(&self) -> Option<(String, Option<String>)> {
+        resolve_diff_oids(&self.state.commits, &self.state.selected_commits)
+    }
+
     fn load_diff_files(&mut self) {
-        let Some(idx) = self.state.selected_commit else {
-            return;
-        };
-        let Some(oid) = self.state.commits.get(idx).map(|c| c.oid.clone()) else {
+        let Some((base_oid, target_oid)) = self.selected_diff_oids() else {
             return;
         };
         let Some(repo) = &self.repo else {
             return;
         };
-        match repo.load_diff_files(&oid) {
+        let result = match &target_oid {
+            Some(target_oid) => repo.load_diff_files_between(&base_oid, target_oid),
+            None => repo.load_diff_files(&base_oid),
+        };
+        match result {
             Ok(files) => {
                 self.state.diff_files = files;
                 self.state.selected_file = None;
@@ -154,13 +181,10 @@ impl App {
     }
 
     fn load_diff_hunks(&mut self) {
-        let Some(commit_idx) = self.state.selected_commit else {
+        let Some((base_oid, target_oid)) = self.selected_diff_oids() else {
             return;
         };
         let Some(file_idx) = self.state.selected_file else {
-            return;
-        };
-        let Some(oid) = self.state.commits.get(commit_idx).map(|c| c.oid.clone()) else {
             return;
         };
         let Some(file) = self.state.diff_files.get(file_idx) else {
@@ -175,7 +199,11 @@ impl App {
         let Some(repo) = &self.repo else {
             return;
         };
-        match repo.load_diff_hunks(&oid, &file_path) {
+        let result = match &target_oid {
+            Some(target_oid) => repo.load_diff_hunks_between(&base_oid, target_oid, &file_path),
+            None => repo.load_diff_hunks(&base_oid, &file_path),
+        };
+        match result {
             Ok(hunks) => {
                 self.state.diff_hunks = hunks;
             }
@@ -241,7 +269,9 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ctx, |ui| {
             let available = ui.available_rect_before_wrap();
             let min_side = 150.0_f32;
-            let split = self.state.split_x
+            let split = self
+                .state
+                .split_x
                 .max(min_side)
                 .min(available.width() - min_side);
             let split_screen_x = available.left() + split;
@@ -251,11 +281,7 @@ impl eframe::App for App {
                 egui::pos2(split_screen_x - 4.0, available.top()),
                 egui::pos2(split_screen_x + 4.0, available.bottom()),
             );
-            let sep_resp = ui.interact(
-                sep_rect,
-                ui.id().with("split_sep"),
-                egui::Sense::drag(),
-            );
+            let sep_resp = ui.interact(sep_rect, ui.id().with("split_sep"), egui::Sense::drag());
             if sep_resp.dragged() {
                 self.state.split_x = (split + sep_resp.drag_delta().x)
                     .max(min_side)
@@ -297,9 +323,7 @@ impl eframe::App for App {
                 .collapsible(false)
                 .resizable(false)
                 .show(ctx, |ui| {
-                    ui.label(
-                        egui::RichText::new(msg).color(egui::Color32::from_rgb(209, 36, 47)),
-                    );
+                    ui.label(egui::RichText::new(msg).color(egui::Color32::from_rgb(209, 36, 47)));
                     ui.add_space(8.0);
                     if ui.button("閉じる").clicked() {
                         close_error = true;
@@ -309,5 +333,61 @@ impl eframe::App for App {
         if close_error {
             self.state.error_message = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn commit(oid: &str, time: i64) -> CommitInfo {
+        CommitInfo {
+            oid: oid.to_string(),
+            short_id: oid[..7.min(oid.len())].to_string(),
+            message: String::new(),
+            author: String::new(),
+            time,
+            refs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn resolve_diff_oids_single_selection_returns_oid_only() {
+        let commits = vec![commit("aaaaaaa", 100)];
+        assert_eq!(
+            resolve_diff_oids(&commits, &[0]),
+            Some(("aaaaaaa".to_string(), None))
+        );
+    }
+
+    #[test]
+    fn resolve_diff_oids_two_selection_orders_by_index_newer_first() {
+        // commits はrevwalk(TIMEソート)順、index 0 が最新
+        let commits = vec![commit("newer", 200), commit("older", 100)];
+        assert_eq!(
+            resolve_diff_oids(&commits, &[0, 1]),
+            Some(("older".to_string(), Some("newer".to_string())))
+        );
+        // クリック順を入れ替えても結果は変わらない
+        assert_eq!(
+            resolve_diff_oids(&commits, &[1, 0]),
+            Some(("older".to_string(), Some("newer".to_string())))
+        );
+    }
+
+    #[test]
+    fn resolve_diff_oids_two_selection_same_second_uses_index_not_time() {
+        // 同一秒にコミットされた場合でも、indexの新旧関係を優先する
+        let commits = vec![commit("newer", 100), commit("older", 100)];
+        assert_eq!(
+            resolve_diff_oids(&commits, &[0, 1]),
+            Some(("older".to_string(), Some("newer".to_string())))
+        );
+    }
+
+    #[test]
+    fn resolve_diff_oids_no_selection_returns_none() {
+        let commits = vec![commit("aaaaaaa", 100)];
+        assert_eq!(resolve_diff_oids(&commits, &[]), None);
     }
 }
