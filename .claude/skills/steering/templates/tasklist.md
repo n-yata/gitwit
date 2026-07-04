@@ -54,13 +54,12 @@
 ## フェーズ3: 品質チェックと修正
 
 - [ ] すべてのテストが通ることを確認
-  - [ ] `npm test`
-- [ ] リントエラーがないことを確認
-  - [ ] `npm run lint`
-- [ ] 型エラーがないことを確認
-  - [ ] `npm run typecheck`
+  - [ ] `cargo test`
+- [ ] リント・フォーマットに問題がないことを確認
+  - [ ] `cargo clippy --all-targets -- -D warnings`
+  - [ ] `cargo fmt --check`
 - [ ] ビルドが成功することを確認
-  - [ ] `npm run build`
+  - [ ] `cargo build`
 
 ## フェーズ4: ドキュメント更新
 

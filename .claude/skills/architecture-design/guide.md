@@ -6,26 +6,25 @@
 
 **悪い例**:
 ```
-- Node.js
-- TypeScript
+- Rust
+- egui
 ```
 
 **良い例**:
 ```
-- Node.js v24.11.0 (LTS)
-  - 2026年4月までの長期サポート保証により、本番環境での安定稼働が期待できる
-  - 非同期I/O処理に優れ、APIサーバーとして高いパフォーマンスを発揮
-  - npmエコシステムが充実しており、必要なライブラリの入手が容易
+- Rust (最新安定版)
+  - メモリ安全性を保証しつつネイティブ並みの実行速度を実現できる
+  - 所有権システムによりGCなしでリソース管理でき、デスクトップアプリに適する
+  - cargoエコシステムが充実しており、必要なクレートの入手が容易
 
-- TypeScript 5.x
-  - 静的型付けによりコンパイル時にバグを検出でき、保守性が向上
-  - IDEの補完機能が強力で、開発効率が高い
-  - チーム開発における型定義の共有により、コードの可読性と品質が担保される
+- egui 0.x
+  - 純Rust製の即時モードGUIで、追加ランタイム(Electron等)が不要で軽量
+  - クロスプラットフォーム対応で、将来的な他OS展開の余地がある
+  - シンプルなAPIで、VSCodeライクな軽量UIを素早く構築できる
 
-- npm 11.x
-  - Node.js v24.11.0に標準搭載されており、別途インストール不要
-  - workspaces機能によりモノレポ構成に対応
-  - package-lock.jsonによる依存関係の厳密な管理が可能
+- git2 0.x (libgit2バインディング)
+  - プロセス起動(git コマンド呼び出し)なしで高速にGit操作できる
+  - Rustの型システムを通してlibgit2のAPIを安全に扱える
 ```
 
 ### 2. レイヤー分離の原則
@@ -46,45 +45,46 @@ UI → Data (NG)
 
 ### 各レイヤーの責務
 
-**UIレイヤー**:
-```typescript
-// 責務: ユーザー入力の受付とバリデーション
-class CLI {
-  // OK: サービスレイヤーを呼び出す
-  async addTask(title: string) {
-    const task = await this.taskService.create({ title });
-    console.log(`Created: ${task.id}`);
-  }
+**UIレイヤー(egui ウィジェット)**:
+```rust
+// 責務: ユーザー入力の受付と表示
+impl App {
+    // OK: AppState 経由でGitロジックを呼び出す
+    fn on_filter_changed(&mut self, path: PathBuf) {
+        self.state.set_file_filter(path);
+        self.state.needs_load = true;
+    }
 
-  // NG: データレイヤーを直接呼び出す
-  async addTask(title: string) {
-    const task = await this.repository.save({ title }); // ❌
-  }
+    // NG: git2 のAPIを直接UIから呼び出す
+    fn on_filter_changed_bad(&mut self, path: PathBuf) {
+        let _ = git2::Repository::open(&path); // ❌ UIがGitロジックに直接依存
+    }
 }
 ```
 
-**サービスレイヤー**:
-```typescript
-// 責務: ビジネスロジックの実装
-class TaskService {
-  // ビジネスロジック: 優先度の自動推定
-  async create(data: CreateTaskData): Promise<Task> {
-    const task = {
-      ...data,
-      estimatedPriority: this.estimatePriority(data),
-    };
-    return this.repository.save(task);
-  }
+**ViewModel / AppState レイヤー**:
+```rust
+// 責務: UI状態の保持とGitロジックの呼び出し
+impl AppState {
+    fn load_commits(&mut self) -> Result<(), GitError> {
+        let commits = self.repository.load_commits(1000)?;
+        self.commits = commits;
+        self.needs_load = false;
+        Ok(())
+    }
 }
 ```
 
-**データレイヤー**:
-```typescript
-// 責務: データの永続化
-class TaskRepository {
-  async save(task: Task): Promise<void> {
-    await this.storage.write(task);
-  }
+**Git ロジックレイヤー(git2クレート)**:
+```rust
+// 責務: Gitリポジトリ操作の実装
+impl GitRepository {
+    fn load_commits(&self, limit: usize) -> Result<Vec<CommitInfo>, GitError> {
+        let mut revwalk = self.inner.revwalk().map_err(GitError::Git2)?;
+        revwalk.push_head().map_err(GitError::Git2)?;
+        // ...
+        Ok(Vec::new())
+    }
 }
 ```
 
@@ -93,13 +93,13 @@ class TaskRepository {
 ### 具体的な数値目標
 
 ```
-コマンド実行時間: 100ms以内(平均的なPC環境で)
-└─ 測定方法: console.timeでCLI起動から結果表示まで計測
+コミット履歴の表示: 200ms以内(平均的なPC環境で)
+└─ 測定方法: std::time::Instant でリポジトリオープンから一覧描画まで計測
 └─ 測定環境: CPU Core i5相当、メモリ8GB、SSD
 
-タスク一覧表示: 1000件まで1秒以内
-└─ 測定方法: 1000件のダミーデータで計測
-└─ 許容範囲: 100件で100ms、1000件で1秒、10000件で10秒
+コミット一覧の描画: 60fps を維持(egui の再描画コスト込み)
+└─ 測定方法: 1000コミットのテストリポジトリで計測
+└─ 許容範囲: 100件で50ms、1000件で200ms、10000件で1秒
 ```
 
 ## セキュリティ設計
@@ -108,47 +108,47 @@ class TaskRepository {
 
 1. **最小権限の原則**
 ```bash
-# ファイルパーミッション
-chmod 600 ~/.devtask/tasks.json  # 所有者のみ読み書き
+# ファイルパーミッション(設定ファイル等を扱う場合)
+chmod 600 ~/.gitwit/config.toml  # 所有者のみ読み書き
 ```
 
 2. **入力検証**
-```typescript
-function validateTitle(title: string): void {
-  if (!title || title.length === 0) {
-    throw new ValidationError('タイトルは必須です');
-  }
-  if (title.length > 200) {
-    throw new ValidationError('タイトルは200文字以内です');
-  }
+```rust
+fn validate_repo_path(path: &Path) -> Result<(), GitError> {
+    if !path.exists() {
+        return Err(GitError::NotARepository(path.to_path_buf()));
+    }
+    if git2::Repository::open(path).is_err() {
+        return Err(GitError::NotARepository(path.to_path_buf()));
+    }
+    Ok(())
 }
 ```
 
 3. **機密情報の管理**
 ```bash
-# 環境変数で管理
-export DEVTASK_API_KEY="xxxxx"  # コード内にハードコードしない
+# 認証情報が必要な場合は環境変数で管理し、コード内にハードコードしない
+export GITWIT_CREDENTIAL_HELPER="xxxxx"
 ```
 
 ## スケーラビリティ設計
 
 ### データ増加への対応
 
-**想定データ量**: [例: 10,000件のタスク]
+**想定データ量**: [例: 10,000件のコミット履歴]
 
 **対策**:
-- データのページネーション
-- 古いデータのアーカイブ
-- インデックスの最適化
+- コミット一覧の遅延読み込み(ページネーション)
+- 大きすぎるdiffのスキップ(`MAX_DIFF_SIZE_BYTES`)
+- `git2::Revwalk` の絞り込みによる走査範囲の最適化
 
-```typescript
-// アーカイブ機能の例: 古いタスクを別ファイルに移動
-class ArchiveService {
-  async archiveCompletedTasks(olderThan: Date): Promise<void> {
-    const oldTasks = await this.repository.findCompleted(olderThan);
-    await this.archiveStorage.save(oldTasks);
-    await this.repository.deleteMany(oldTasks.map(t => t.id));
-  }
+```rust
+// 大きすぎるファイルの diff をスキップする例
+fn build_diff_line(file_size: u64, content: &str) -> Result<DiffLine, GitError> {
+    if file_size > MAX_DIFF_SIZE_BYTES {
+        return Err(GitError::LargeFile(file_size));
+    }
+    Ok(DiffLine::from_content(content))
 }
 ```
 
@@ -156,23 +156,19 @@ class ArchiveService {
 
 ### バージョン管理方針
 
-```json
-{
-  "dependencies": {
-    "commander": "^11.0.0",  // マイナーバージョンアップは自動
-    "chalk": "5.3.0"         // 破壊的変更のリスクがある場合は固定
-  },
-  "devDependencies": {
-    "typescript": "~5.3.0",  // パッチバージョンのみ自動
-    "eslint": "^9.0.0"
-  }
-}
+```toml
+# Cargo.toml
+[dependencies]
+git2 = "0.19"      # マイナーバージョンアップは自動(セマンティックバージョニングに従う)
+egui = "=0.29.1"   # 破壊的変更のリスクがある場合は完全固定
+eframe = "0.29"
+chrono = "0.4"
 ```
 
 **方針**:
-- 安定版は固定(^でマイナーバージョンまで許可)
-- 破壊的変更のリスクがある場合は完全固定
-- devDependenciesはパッチバージョンのみ自動(~)
+- 安定版は `Cargo.toml` のデフォルト指定(キャレット互換、マイナーバージョンまで許可)
+- 破壊的変更のリスクがある場合(UIフレームワーク等)は完全固定(`=`)
+- `Cargo.lock` をコミットし、ビルドの再現性を担保する
 
 ## チェックリスト
 

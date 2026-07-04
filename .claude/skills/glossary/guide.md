@@ -24,7 +24,7 @@
 - 「タスクを追加する」: 新しいタスクをシステムに登録する
 - 「タスクを完了する」: タスクのステータスを完了に変更する
 
-**データモデル**: `src/types/Task.ts`
+**データモデル**: `src/git/commit.rs` の `CommitInfo` 構造体
 ```
 
 ### 2. 具体例を含める
@@ -47,10 +47,10 @@
 - low: 期限が1週間以上先、または期限なし
 
 **使用例**:
-```typescript
-const task: Task = {
-  title: 'セキュリティ脆弱性の修正',
-  priority: 'high', // 緊急対応が必要
+```rust
+let task = Task {
+    title: "セキュリティ脆弱性の修正".to_string(),
+    priority: Priority::High, // 緊急対応が必要
 };
 ```
 ```
@@ -155,31 +155,30 @@ const task: Task = {
 
 **例**:
 ```markdown
-## TypeScript
+## git2
 
-**定義**: JavaScriptに静的型付けを追加したプログラミング言語
+**定義**: libgit2(C言語製のGit実装ライブラリ)のRustバインディングクレート
 
-**公式サイト**: https://www.typescriptlang.org/
+**公式サイト**: https://docs.rs/git2/
 
 **本プロジェクトでの用途**:
-全てのソースコードをTypeScriptで記述し、型安全性を確保しています。
+Gitリポジトリのオープン・コミット履歴取得・diff計算など、全てのGit操作をgit2経由で行う。`git` コマンドをプロセス起動しないため高速。
 
-**バージョン**: 5.3.x
+**バージョン**: 0.19.x
 
 **選定理由**:
-- 大規模開発での保守性向上
-- エディタの補完機能による開発効率向上
-- コンパイル時のエラー検出
+- プロセス起動のオーバーヘッドがなく高速
+- Rustの型システムを通してlibgit2のAPIを安全に扱える
+- クロスプラットフォーム対応
 
 **代替技術**:
-- JavaScript ESM: 型チェックの恩恵が受けられない
-- Flow: エコシステムの成熟度でTypeScriptに劣る
+- `git` コマンドをプロセス起動して呼び出す方式: 実装は単純だがプロセス起動コストとパース処理が必要になる
 
 **関連ドキュメント**:
 - [アーキテクチャ設計書](./architecture.md#技術スタック)
-- [開発ガイドライン](./development-guidelines.md#TypeScript規約)
+- [開発ガイドライン](./development-guidelines.md#コーディング規約)
 
-**設定ファイル**: `tsconfig.json`
+**設定ファイル**: `Cargo.toml`
 ```
 
 ### 略語・頭字語の定義
@@ -328,21 +327,23 @@ stateDiagram-v2
 ```
 
 **実装**:
-```typescript
-// src/types/Task.ts
-export type TaskStatus = 'todo' | 'in_progress' | 'completed';
+```rust
+// src/git/commit.rs
+enum TaskStatus {
+    Todo,
+    InProgress,
+    Completed,
+}
 
 // 状態遷移の検証
-function canTransition(
-  from: TaskStatus,
-  to: TaskStatus
-): boolean {
-  const validTransitions: Record<TaskStatus, TaskStatus[]> = {
-    todo: ['in_progress'],
-    in_progress: ['completed', 'todo'],
-    completed: ['todo'],
-  };
-  return validTransitions[from].includes(to);
+fn can_transition(from: &TaskStatus, to: &TaskStatus) -> bool {
+    matches!(
+        (from, to),
+        (TaskStatus::Todo, TaskStatus::InProgress)
+            | (TaskStatus::InProgress, TaskStatus::Completed)
+            | (TaskStatus::InProgress, TaskStatus::Todo)
+            | (TaskStatus::Completed, TaskStatus::Todo)
+    )
 }
 ```
 
@@ -383,56 +384,56 @@ function canTransition(
 
 **例**:
 ```markdown
-## バリデーションエラー (Validation Error)
+## Gitリポジトリ不正エラー (Not A Repository Error)
 
-**クラス名**: `ValidationError`
+**型名**: `GitError::NotARepository`
 
-**継承元**: `Error`
+**種別**: `GitError` enum のバリアント
 
 **発生条件**:
-ユーザー入力がビジネスルールに違反した場合に発生します。
+ユーザーが指定したパス、またはドラッグ&ドロップされたパスがGitリポジトリ配下でない場合に発生します。
 
 **エラーメッセージフォーマット**:
 ```
-[フィールド名]: [エラー内容]
+指定されたパスはGitリポジトリではありません: [パス]
 ```
 
 **対処方法**:
-- ユーザー: エラーメッセージに従って入力を修正
-- 開発者: バリデーションロジックが正しいか確認
-
-**エラーコード**: `VAL-XXX` (XXXは3桁の数値)
+- ユーザー: 別のリポジトリパスを指定し直す
+- 開発者: パス解決ロジック(`resolve_target()`)が正しいか確認
 
 **ログレベル**: WARN (ユーザー起因のエラーのため)
 
-**実装箇所**: `src/errors/ValidationError.ts`
+**実装箇所**: `src/error.rs` の `GitError` enum
 
 **使用例**:
-```typescript
-// エラーのスロー
-if (title.length === 0) {
-  throw new ValidationError(
-    'タイトルは必須です',
-    'title',
-    title
-  );
+```rust
+// エラーの生成
+fn open_repository(path: &Path) -> Result<GitRepository, GitError> {
+    if git2::Repository::open(path).is_err() {
+        return Err(GitError::NotARepository(path.to_path_buf()));
+    }
+    // ...
+    todo!()
 }
 
 // エラーのハンドリング
-try {
-  await taskService.create(data);
-} catch (error) {
-  if (error instanceof ValidationError) {
-    console.error(`入力エラー: ${error.message}`);
-    console.error(`フィールド: ${error.field}`);
-  }
+match open_repository(&path) {
+    Ok(repo) => repo,
+    Err(GitError::NotARepository(path)) => {
+        state.error_message = Some(format!("指定されたパスはGitリポジトリではありません: {}", path.display()));
+        return;
+    }
+    Err(e) => {
+        state.error_message = Some(e.to_string());
+        return;
+    }
 }
 ```
 
 **関連するバリデーション**:
-- タイトル: 1-200文字
-- 期限: 現在時刻以降
-- 優先度: high, medium, low のいずれか
+- パスの存在確認
+- `.git` ディレクトリ(またはlibgit2が認識するGit管理下)の確認
 ```
 
 ## 用語の保守・更新
@@ -492,7 +493,7 @@ try {
 
 ### A-Z
 - [CLI](#CLI) - 略語
-- [TypeScript](#TypeScript) - 技術用語
+- [git2](#git2) - 技術用語
 ```
 
 ## チェックリスト

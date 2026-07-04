@@ -6,72 +6,75 @@
 
 #### 変数・関数
 
-**TypeScript/JavaScript**:
-```typescript
+**Rust**:
+```rust
 // ✅ 良い例
-const userProfileData = fetchUserProfile();
-function calculateTotalPrice(items: CartItem[]): number { }
+let user_profile_data = fetch_user_profile();
+fn calculate_total_price(items: &[CartItem]) -> u32 { 0 }
 
 // ❌ 悪い例
-const data = fetch();
-function calc(arr: any[]): number { }
+let data = fetch();
+fn calc(arr: &[Box<dyn std::any::Any>]) -> u32 { 0 }
 ```
 
 **原則**:
-- 変数: camelCase、名詞または名詞句
-- 関数: camelCase、動詞で始める
+- 変数: snake_case、名詞または名詞句
+- 関数: snake_case、動詞で始める
 - 定数: UPPER_SNAKE_CASE
-- Boolean: `is`, `has`, `should`で始める
+- Boolean: `is_`, `has_`, `should_`で始める
 
-#### クラス・インターフェース
+#### 構造体・トレイト
 
-```typescript
-// クラス: PascalCase、名詞
-class TaskManager { }
-class UserAuthenticationService { }
+```rust
+// 構造体: PascalCase、名詞
+struct TaskManager { }
+struct UserAuthenticationService { }
 
-// インターフェース: PascalCase、I接頭辞またはなし
-interface ITaskRepository { }
-interface Task { }
+// トレイト: PascalCase
+trait TaskRepository { }
 
-// 型エイリアス: PascalCase
-type TaskStatus = 'todo' | 'in_progress' | 'completed';
+// enum: PascalCase(バリアントもPascalCase)
+enum TaskStatus {
+    Todo,
+    InProgress,
+    Completed,
+}
 ```
 
 ### コードフォーマット
 
-**インデント**: [2スペース/4スペース/タブ]
+**ツール**: `rustfmt`(`cargo fmt` で実行。`rustfmt.toml` は作成せずデフォルト設定を使用)
 
-**行の長さ**: 最大[80/100/120]文字
+**インデント**: スペース4つ(rustfmtデフォルト)
 
-**例**:
-```typescript
-// [言語] コードフォーマット例
-[コード例]
+**行の長さ**: 最大100文字(rustfmtデフォルト)
+
+**コミット前に必ず実行**:
+```bash
+cargo fmt
+cargo clippy -- -D warnings
 ```
 
 ### コメント規約
 
-**関数・クラスのドキュメント**:
-```typescript
-/**
- * タスクの合計数を計算する
- *
- * @param tasks - 計算対象のタスク配列
- * @param filter - フィルター条件(オプション)
- * @returns タスクの合計数
- * @throws {ValidationError} タスク配列が不正な場合
- */
-function countTasks(
-  tasks: Task[],
-  filter?: TaskFilter
-): number {
-  // 実装
+**関数・構造体のドキュメント**:
+```rust
+/// タスクの合計数を計算する
+///
+/// # Arguments
+/// * `tasks` - 計算対象のタスク配列
+/// * `filter` - フィルター条件(オプション)
+///
+/// # Errors
+/// タスク配列が不正な場合は `ValidationError` を返す
+fn count_tasks(tasks: &[Task], filter: Option<&TaskFilter>) -> Result<usize, ValidationError> {
+    // 実装
+    todo!()
 }
 ```
 
 **インラインコメント**:
-```typescript
+```rust
 // ✅ 良い例: なぜそうするかを説明
 // キャッシュを無効化して、最新データを取得
 cache.clear();
@@ -84,35 +87,33 @@ cache.clear();
 ### エラーハンドリング
 
 **原則**:
-- 予期されるエラー: 適切なエラークラスを定義
-- 予期しないエラー: 上位に伝播
-- エラーを無視しない
+- 予期されるエラー: 適切なエラー型(enum)を定義
+- 予期しないエラー: `Result` で上位に伝播
+- `unwrap()`/`expect()` は本番コードに書かない(テストコードのみ許容)
 
 **例**:
-```typescript
-// エラークラス定義
-class ValidationError extends Error {
-  constructor(
-    message: string,
-    public field: string,
-    public value: unknown
-  ) {
-    super(message);
-    this.name = 'ValidationError';
-  }
+```rust
+// エラー型定義
+#[derive(Debug)]
+struct ValidationError {
+    field: String,
+    message: String,
+}
+
+impl fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "検証エラー [{}]: {}", self.field, self.message)
+    }
 }
 
 // エラーハンドリング
-try {
-  const task = await taskService.create(data);
-} catch (error) {
-  if (error instanceof ValidationError) {
-    console.error(`検証エラー [${error.field}]: ${error.message}`);
-    // ユーザーにフィードバック
-  } else {
-    console.error('予期しないエラー:', error);
-    throw error; // 上位に伝播
-  }
+match task_service.create(data) {
+    Ok(task) => task,
+    Err(ValidationError { field, message }) => {
+        eprintln!("検証エラー [{field}]: {message}");
+        // ユーザーにフィードバック
+        return Err(ValidationError { field, message });
+    }
 }
 ```
 
@@ -216,118 +217,116 @@ Closes #[Issue番号]
 
 **カバレッジ目標**: [80/90/100]%
 
-**例**:
-```typescript
-describe('TaskService', () => {
-  describe('create', () => {
-    it('正常なデータでタスクを作成できる', async () => {
-      const service = new TaskService(mockRepository);
-      const task = await service.create({
-        title: 'テストタスク',
-        description: '説明',
-      });
+**例**(各ソースファイル末尾の `#[cfg(test)] mod tests`、Rust の慣習):
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-      expect(task.id).toBeDefined();
-      expect(task.title).toBe('テストタスク');
-    });
+    #[test]
+    fn create_returns_task_when_data_is_valid() {
+        let repository = InMemoryTaskRepository::new();
+        let task = task_service::create(&repository, CreateTaskData {
+            title: "テストタスク".to_string(),
+            description: "説明".to_string(),
+        }).unwrap();
 
-    it('タイトルが空の場合ValidationErrorをスローする', async () => {
-      const service = new TaskService(mockRepository);
+        assert_eq!(task.title, "テストタスク");
+    }
 
-      await expect(
-        service.create({ title: '' })
-      ).rejects.toThrow(ValidationError);
-    });
-  });
-});
+    #[test]
+    fn create_returns_validation_error_when_title_is_empty() {
+        let repository = InMemoryTaskRepository::new();
+        let result = task_service::create(&repository, CreateTaskData {
+            title: String::new(),
+            description: String::new(),
+        });
+
+        assert!(matches!(result, Err(ValidationError { .. })));
+    }
+}
 ```
 
 #### 統合テスト
 
-**対象**: 複数コンポーネントの連携
+**対象**: 複数コンポーネントの連携。`tests/` ディレクトリに配置
 
 **例**:
-```typescript
-describe('Task CRUD', () => {
-  it('タスクの作成・取得・更新・削除ができる', async () => {
+```rust
+// tests/task_crud.rs
+#[test]
+fn task_crud_flow_creates_reads_updates_and_deletes() {
+    let repository = TaskRepository::open_temp();
+
     // 作成
-    const created = await taskService.create({ title: 'テスト' });
+    let created = repository.create(&CreateTaskData { title: "テスト".to_string() }).unwrap();
 
     // 取得
-    const found = await taskService.findById(created.id);
-    expect(found?.title).toBe('テスト');
+    let found = repository.find_by_id(&created.id).unwrap();
+    assert_eq!(found.title, "テスト");
 
     // 更新
-    await taskService.update(created.id, { title: '更新後' });
-    const updated = await taskService.findById(created.id);
-    expect(updated?.title).toBe('更新後');
+    repository.update(&created.id, &UpdateTaskData { title: "更新後".to_string() }).unwrap();
+    let updated = repository.find_by_id(&created.id).unwrap();
+    assert_eq!(updated.title, "更新後");
 
     // 削除
-    await taskService.delete(created.id);
-    const deleted = await taskService.findById(created.id);
-    expect(deleted).toBeNull();
-  });
-});
+    repository.delete(&created.id).unwrap();
+    assert!(repository.find_by_id(&created.id).is_none());
+}
 ```
 
 #### E2Eテスト
 
-**対象**: ユーザーシナリオ全体
+**対象**: ユーザーシナリオ全体(egui のUIは自動テストが困難なため、本プロジェクトでは手動確認を基本とする)
 
-**例**:
-```typescript
-describe('タスク管理フロー', () => {
-  it('ユーザーがタスクを追加して完了できる', async () => {
-    // タスク追加
-    await cli.run(['add', '新しいタスク']);
-    expect(output).toContain('タスクを追加しました');
-
-    // タスク一覧表示
-    await cli.run(['list']);
-    expect(output).toContain('新しいタスク');
-
-    // タスク完了
-    await cli.run(['complete', '1']);
-    expect(output).toContain('タスクを完了しました');
-  });
-});
+**例**(CLI部分など自動化可能な範囲):
+```rust
+// tests/cli_flow.rs
+#[test]
+fn user_can_open_repository_and_see_commit_history() {
+    let repo_path = setup_test_repo();
+    let output = run_cli(&["--repo", repo_path.to_str().unwrap(), "log"]);
+    assert!(output.contains("Initial commit"));
+}
 ```
 
 ### テスト命名規則
 
-**パターン**: `[対象]_[条件]_[期待結果]`
+**パターン**: `<対象>_<条件>_<期待結果>`
 
 **例**:
-```typescript
+```rust
 // ✅ 良い例
-it('create_emptyTitle_throwsValidationError', () => { });
-it('findById_existingId_returnsTask', () => { });
-it('delete_nonExistentId_throwsNotFoundError', () => { });
+fn create_empty_title_returns_validation_error() { }
+fn find_by_id_existing_id_returns_task() { }
+fn delete_non_existent_id_returns_not_found_error() { }
 
 // ❌ 悪い例
-it('test1', () => { });
-it('works', () => { });
-it('should work correctly', () => { });
+fn test1() { }
+fn works() { }
+fn should_work_correctly() { }
 ```
 
-### モック・スタブの使用
+### テスト用実装(モック)の使用
 
 **原則**:
-- 外部依存(API、DB、ファイルシステム)はモック化
-- ビジネスロジックは実装を使用
+- 外部依存(ファイルシステム等)はテスト用の一時ディレクトリ・一時リポジトリを使う(`tempfile` クレート)
+- `src/git/` レイヤーは実際の `git2` を使うテスト用リポジトリで検証する(モックしない)
+- ビジネスロジックは実装をそのまま使用
 
 **例**:
-```typescript
-// リポジトリをモック化
-const mockRepository: ITaskRepository = {
-  save: jest.fn(),
-  findById: jest.fn(),
-  findAll: jest.fn(),
-  delete: jest.fn(),
-};
+```rust
+// トレイトを実装したインメモリ版でモック代わりにする
+struct InMemoryTaskRepository {
+    tasks: RefCell<HashMap<String, Task>>,
+}
 
-// サービスは実際の実装を使用
-const service = new TaskService(mockRepository);
+impl TaskRepository for InMemoryTaskRepository {
+    fn find_by_id(&self, id: &str) -> Option<Task> {
+        self.tasks.borrow().get(id).cloned()
+    }
+}
 ```
 
 ## コードレビュー基準

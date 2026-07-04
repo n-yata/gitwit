@@ -53,7 +53,7 @@ docs/development-guidelines.md
 コード実装時のルールと規約: ./guides/implementation.md
 
 含まれる内容:
-- TypeScript/JavaScript規約
+- Rustコーディング規約
 - 型定義・命名規則
 - 関数設計とエラーハンドリング
 - コメント規約

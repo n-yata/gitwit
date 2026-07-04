@@ -12,14 +12,14 @@
 ```
 
 **良い例**:
-```typescript
+```rust
 // ✅ 良い例: 役割が明確
-const userAuthentication = new UserAuthenticationService();
-const taskRepository = new TaskRepository();
+let user_authentication = UserAuthenticationService::new();
+let task_repository = TaskRepository::new();
 
 // ❌ 悪い例: 曖昧
-const auth = new Service();
-const repo = new Repository();
+let auth = Service::new();
+let repo = Repository::new();
 ```
 
 ### 2. 理由を説明する
@@ -191,63 +191,54 @@ Refs #[番号]
 
 **Given-When-Then パターン**:
 
-```typescript
-describe('TaskService', () => {
-  describe('タスク作成', () => {
-    it('正常なデータの場合、タスクを作成できる', async () => {
-      // Given: 準備
-      const service = new TaskService(mockRepository);
-      const validData = { title: 'テスト' };
+配置は各ソースファイルの末尾(`#[cfg(test)] mod tests`、Rust の慣習)。
 
-      // When: 実行
-      const result = await service.create(validData);
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-      // Then: 検証
-      expect(result.id).toBeDefined();
-      expect(result.title).toBe('テスト');
-    });
+    #[test]
+    fn create_returns_task_when_data_is_valid() {
+        // Given: 準備
+        let repository = InMemoryTaskRepository::new();
+        let valid_data = CreateTaskData { title: "テスト".to_string() };
 
-    it('タイトルが空の場合、ValidationErrorをスローする', async () => {
-      // Given: 準備
-      const service = new TaskService(mockRepository);
-      const invalidData = { title: '' };
+        // When: 実行
+        let result = create_task(&repository, valid_data);
 
-      // When/Then: 実行と検証
-      await expect(
-        service.create(invalidData)
-      ).rejects.toThrow(ValidationError);
-    });
-  });
-});
+        // Then: 検証
+        let task = result.unwrap();
+        assert_eq!(task.title, "テスト");
+    }
+
+    #[test]
+    fn create_returns_validation_error_when_title_is_empty() {
+        // Given: 準備
+        let repository = InMemoryTaskRepository::new();
+        let invalid_data = CreateTaskData { title: String::new() };
+
+        // When/Then: 実行と検証
+        let result = create_task(&repository, invalid_data);
+        assert!(matches!(result, Err(TaskError::Validation { .. })));
+    }
+}
 ```
 
 ### カバレッジ目標
 
-**測定可能な目標**:
+**測定可能な目標(`cargo llvm-cov` で計測)**:
 
-```json
-// jest.config.js
-{
-  "coverageThreshold": {
-    "global": {
-      "branches": 80,
-      "functions": 80,
-      "lines": 80,
-      "statements": 80
-    },
-    "./src/services/": {
-      "branches": 90,
-      "functions": 90,
-      "lines": 90,
-      "statements": 90
-    }
-  }
-}
+```toml
+# .github/workflows/coverage.yml 相当の閾値設定として管理
+# src/git/ レイヤー: 80% 以上
+# src/app.rs (AppState): 60% 以上
+# UI レイヤー(egui ウィジェット): 目標値なし(手動確認とする)
 ```
 
 **理由**:
-- 重要なビジネスロジック(services/)は高いカバレッジを要求
-- UI層は低めでも許容
+- 重要なビジネスロジック(`src/git/`)は高いカバレッジを要求
+- UI層は egui の性質上自動テストが困難なため低めでも許容
 - 100%を目指さない (コストと効果のバランス)
 
 ## コードレビュープロセス
@@ -269,11 +260,11 @@ describe('TaskService', () => {
 
 ## ✅ 良い例
 この実装だと O(n²) の時間計算量になります。
-Map を使うと O(n) に改善できます:
+HashMap を使うと O(n) に改善できます:
 
-```typescript
-const taskMap = new Map(tasks.map(t => [t.id, t]));
-const result = ids.map(id => taskMap.get(id));
+```rust
+let task_map: HashMap<&str, &Task> = tasks.iter().map(|t| (t.id.as_str(), t)).collect();
+let result: Vec<Option<&&Task>> = ids.iter().map(|id| task_map.get(id.as_str())).collect();
 ```
 ```
 
@@ -323,35 +314,30 @@ const result = ids.map(id => taskMap.get(id));
 **自動化項目と採用ツール**:
 
 1. **Lintチェック**
-   - **ESLint 9.x** + **@typescript-eslint**
-     - TypeScript専用ルールセットでコーディング規約を統一
-     - 潜在的なバグや非推奨パターンを自動検出
-     - 設定ファイル: `eslint.config.js` (Flat Config形式)
+   - **`cargo clippy`**
+     - Rust 標準の静的解析ツール。潜在的なバグや非推奨パターンを自動検出
+     - `-D warnings` で警告をエラー扱いにし、CI でゼロ warning を強制
+     - 追加設定ファイルは作成せずデフォルトのlintセットを使用
 
 2. **コードフォーマット**
-   - **Prettier 3.x**
+   - **`rustfmt`**(`cargo fmt` で実行)
      - コードスタイルを自動整形し、レビュー時の議論を削減
-     - ESLintと併用し、`eslint-config-prettier`で競合を回避
-     - 設定ファイル: `.prettierrc`
+     - `rustfmt.toml` は作成せずデフォルト設定を使用
 
 3. **型チェック**
-   - **TypeScript Compiler (tsc) 5.x**
-     - `tsc --noEmit`で型エラーのみをチェック
-     - ビルドとは独立して型安全性を検証
-     - 設定ファイル: `tsconfig.json`
+   - Rust はコンパイル時に型検査が行われるため、独立した型チェックコマンドは不要
+     - `cargo check` でビルドより高速に型エラーのみ検出可能
 
 4. **テスト実行**
-   - **Vitest 2.x**
-     - Viteベースで高速起動・実行
-     - TypeScript/ESMをネイティブサポートし、設定不要で動作
-     - カバレッジ測定（@vitest/coverage-v8）が標準搭載
-     - モダンな開発体験とHMR対応
+   - **`cargo test`**
+     - 標準テストランナーで追加ツール不要
+     - ユニットテストは各ソースファイル末尾の `#[cfg(test)] mod tests` に配置
+     - 統合テストは `tests/` ディレクトリに配置
 
 5. **ビルド確認**
-   - **TypeScript Compiler (tsc)**
-     - 標準コンパイラで型チェック付きビルドを保証
-     - 追加ツール不要でシンプルな構成
-     - `tsconfig.json`で出力設定を一元管理
+   - **`cargo build`**
+     - 標準ビルドコマンドで型チェック付きビルドを保証
+     - Windows 向けリリースビルドは `cargo build --release`
 
 **実装方法**:
 
@@ -362,43 +348,24 @@ name: CI
 on: [push, pull_request]
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          node-version: '24'
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run test
-      - run: npm run build
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy -- -D warnings
+      - run: cargo test
+      - run: cargo build
 ```
 
-**2. Pre-commit フック (Husky 9.x + lint-staged)**
-```json
-// package.json
-{
-  "scripts": {
-    "prepare": "husky",
-    "lint": "eslint .",
-    "format": "prettier --write .",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "build": "tsc"
-  },
-  "lint-staged": {
-    "*.{ts,tsx}": [
-      "eslint --fix",
-      "prettier --write"
-    ]
-  }
-}
-```
+**2. Pre-commit フック**
 ```bash
-# .husky/pre-commit
-npm run lint-staged
-npm run typecheck
+# .git/hooks/pre-commit(もしくは cargo-husky 等のクレートで管理)
+#!/bin/sh
+cargo fmt --check || exit 1
+cargo clippy -- -D warnings || exit 1
 ```
 
 **導入効果**:
@@ -407,8 +374,8 @@ npm run typecheck
 - 早期発見により、修正コストを最大80%削減（バグ検出が本番後の場合と比較）
 
 **この構成を選んだ理由**:
-- 2025年時点でのTypeScriptエコシステムにおける標準的かつモダンな構成
-- ツール間の互換性が高く、設定の衝突が少ない
+- Rust ツールチェーンに標準搭載されているため追加依存が最小限
+- `cargo fmt`/`clippy`/`test`/`build` はいずれも公式ツールで、設定の衝突が起きにくい
 - 開発体験と実行速度のバランスが優れている
 
 ## チェックリスト

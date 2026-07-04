@@ -8,13 +8,10 @@ project-root/
 │   ├── [layer1]/          # [説明]
 │   ├── [layer2]/          # [説明]
 │   └── [layer3]/          # [説明]
-├── tests/                 # テストコード
-│   ├── unit/              # ユニットテスト
-│   ├── integration/       # 統合テスト
-│   └── e2e/               # E2Eテスト
+├── tests/                 # 統合テスト(ユニットテストは各ソースファイル内)
 ├── docs/                  # プロジェクトドキュメント
-├── config/                # 設定ファイル
-└── scripts/               # ビルド・デプロイスクリプト
+├── scripts/               # 補助スクリプト
+└── Cargo.toml             # 依存関係・ビルド設定
 ```
 
 ## ディレクトリ詳細
@@ -34,14 +31,15 @@ project-root/
 - [規則2]
 
 **依存関係**:
-- 依存可能: [ディレクトリ名]
-- 依存禁止: [ディレクトリ名]
+- 依存可能: [モジュール名]
+- 依存禁止: [モジュール名]
 
 **例**:
 ```
-[ディレクトリ名]/
-├── [example-file1].ts
-└── [example-file2].ts
+[モジュール名]/
+├── mod.rs
+├── [example_file1].rs
+└── [example_file2].rs
 ```
 
 #### [ディレクトリ2]
@@ -55,48 +53,25 @@ project-root/
 - [規則1]
 
 **依存関係**:
-- 依存可能: [ディレクトリ名]
-- 依存禁止: [ディレクトリ名]
+- 依存可能: [モジュール名]
+- 依存禁止: [モジュール名]
 
-### tests/ (テストディレクトリ)
+### tests/ (統合テストディレクトリ)
 
-#### unit/
-
-**役割**: ユニットテストの配置
+**役割**: クレートの公開APIを経由した統合テストの配置
 
 **構造**:
 ```
-tests/unit/
-└── src/                    # srcディレクトリと同じ構造
-    └── [layer]/
-        └── [filename].test.ts
+tests/
+└── [feature]_integration.rs   # 機能単位でファイル分割
 ```
 
 **命名規則**:
-- パターン: `[テスト対象ファイル名].test.ts`
-- 例: `TaskService.ts` → `TaskService.test.ts`
+- パターン: `[対象機能]_integration.rs`
+- 例: `git_integration.rs`
 
-#### integration/
-
-**役割**: 統合テストの配置
-
-**構造**:
-```
-tests/integration/
-└── [feature]/              # 機能単位でディレクトリ分割
-    └── [scenario].test.ts
-```
-
-#### e2e/
-
-**役割**: E2Eテストの配置
-
-**構造**:
-```
-tests/e2e/
-└── [user-scenario]/        # ユーザーシナリオ単位
-    └── [flow].test.ts
-```
+**ユニットテストについて**:
+- ユニットテストは `tests/` に置かず、各ソースファイル末尾の `#[cfg(test)] mod tests` に配置する(Rustの慣習)
 
 ### docs/ (ドキュメントディレクトリ)
 
@@ -108,24 +83,11 @@ tests/e2e/
 - `development-guidelines.md`: 開発ガイドライン
 - `glossary.md`: 用語集
 
-### config/ (設定ファイルディレクトリ - 該当する場合)
-
-**配置ファイル**:
-- 設定ファイル
-- 定数定義ファイル
-
-**例**:
-```
-config/
-├── default.ts
-└── constants.ts
-```
-
 ### scripts/ (スクリプトディレクトリ - 該当する場合)
 
 **配置ファイル**:
-- ビルドスクリプト
-- 開発補助スクリプト
+- ビルド補助スクリプト
+- 開発補助スクリプト(例: `.ps1`, `.sh`)
 
 ## ファイル配置規則
 
@@ -140,40 +102,39 @@ config/
 
 | テスト種別 | 配置先 | 命名規則 | 例 |
 |-----------|--------|---------|-----|
-| ユニットテスト | tests/unit/ | [対象].test.ts | TaskService.test.ts |
-| 統合テスト | tests/integration/ | [機能].test.ts | task-crud.test.ts |
-| E2Eテスト | tests/e2e/ | [シナリオ].test.ts | user-workflow.test.ts |
+| ユニットテスト | 各ソースファイル内 `#[cfg(test)] mod tests` | 関数名で表現 | `format_relative_time_minutes` |
+| 統合テスト | tests/ | `[機能]_integration.rs` | `git_integration.rs` |
 
 ### 設定ファイル
 
 | ファイル種別 | 配置先 | 命名規則 |
 |------------|--------|---------|
-| 環境設定 | config/environments/ | [環境名].ts |
-| ツール設定 | プロジェクトルート | [ツール名].config.js |
-| 型定義 | src/types/ | [対象].d.ts |
+| 依存関係・ビルド設定 | プロジェクトルート | `Cargo.toml` |
+| フォーマット設定(該当する場合) | プロジェクトルート | `rustfmt.toml` |
+| Lint設定(該当する場合) | プロジェクトルート | `clippy.toml` |
 
 ## 命名規則
 
-### ディレクトリ名
+### ディレクトリ・モジュール名
 
-- **レイヤーディレクトリ**: 複数形、kebab-case
-  - 例: `services/`, `repositories/`, `controllers/`
-- **機能ディレクトリ**: 単数形、kebab-case
-  - 例: `task-management/`, `user-authentication/`
+- **レイヤーモジュール**: snake_case
+  - 例: `git/`, `ui/`
+- **機能モジュール**: snake_case
+  - 例: `commit_list/`, `diff_view/`
 
 ### ファイル名
 
-- **クラスファイル**: PascalCase
-  - 例: `TaskService.ts`, `UserRepository.ts`
-- **関数ファイル**: camelCase
-  - 例: `formatDate.ts`, `validateEmail.ts`
-- **定数ファイル**: UPPER_SNAKE_CASE
-  - 例: `API_ENDPOINTS.ts`, `ERROR_MESSAGES.ts`
+- **モジュールファイル**: snake_case
+  - 例: `commit.rs`, `diff.rs`
+- **関数を集めたファイル**: snake_case
+  - 例: `format_date.rs`, `validate_path.rs`
+- **定数専用ファイル**: snake_case
+  - 例: `constants.rs`, `error_messages.rs`
 
 ### テストファイル名
 
-- パターン: `[テスト対象].test.ts` または `[テスト対象].spec.ts`
-- 例: `TaskService.test.ts`, `formatDate.spec.ts`
+- 統合テスト: `[機能]_integration.rs`
+- ユニットテスト関数名: `<対象関数>_<条件>_<期待結果>`
 
 ## 依存関係のルール
 
@@ -182,39 +143,39 @@ config/
 ```
 UIレイヤー
     ↓ (OK)
-サービスレイヤー
+ViewModel / AppStateレイヤー
     ↓ (OK)
-データレイヤー
+Gitロジックレイヤー
 ```
 
 **禁止される依存**:
-- データレイヤー → サービスレイヤー (❌)
-- データレイヤー → UIレイヤー (❌)
-- サービスレイヤー → UIレイヤー (❌)
+- Gitロジックレイヤー → AppStateレイヤー (❌)
+- Gitロジックレイヤー → UIレイヤー (❌)
+- AppStateレイヤー → UIレイヤー (❌)
 
 ### モジュール間の依存
 
 **循環依存の禁止**:
-```typescript
+```rust
 // ❌ 悪い例: 循環依存
-// fileA.ts
-import { funcB } from './fileB';
+// file_a.rs
+use crate::file_b::func_b;
 
-// fileB.ts
-import { funcA } from './fileA';  // 循環依存
+// file_b.rs
+use crate::file_a::func_a;  // 循環依存
 ```
 
 **解決策**:
-```typescript
+```rust
 // ✅ 良い例: 共通モジュールの抽出
-// shared.ts
-export interface SharedType { /* ... */ }
+// shared.rs
+pub struct SharedType { /* ... */ }
 
-// fileA.ts
-import { SharedType } from './shared';
+// file_a.rs
+use crate::shared::SharedType;
 
-// fileB.ts
-import { SharedType } from './shared';
+// file_b.rs
+use crate::shared::SharedType;
 ```
 
 ## スケーリング戦略
@@ -223,19 +184,20 @@ import { SharedType } from './shared';
 
 新しい機能を追加する際の配置方針:
 
-1. **小規模機能**: 既存ディレクトリに配置
-2. **中規模機能**: レイヤー内にサブディレクトリを作成
+1. **小規模機能**: 既存モジュールに配置
+2. **中規模機能**: レイヤー内にサブモジュールを作成
 3. **大規模機能**: 独立したモジュールとして分離
 
 **例**:
 ```
 src/
-├── services/
-│   ├── TaskService.ts           # 既存機能
-│   └── task-management/         # 中規模機能の分離
-│       ├── TaskService.ts
-│       ├── SubtaskService.ts
-│       └── TaskCategoryService.ts
+├── git/
+│   ├── mod.rs
+│   ├── commit.rs           # 既存機能
+│   └── commit/             # 中規模機能の分離
+│       ├── mod.rs
+│       ├── history.rs
+│       └── filter.rs
 ```
 
 ### ファイルサイズの管理
@@ -246,14 +208,14 @@ src/
 - 500行以上: 分割を強く推奨
 
 **分割方法**:
-```typescript
+```rust
 // 悪い例: 1ファイルに全機能
-// TaskService.ts (800行)
+// git.rs (800行)
 
 // 良い例: 責務ごとに分割
-// TaskService.ts (200行) - CRUD操作
-// TaskValidationService.ts (150行) - バリデーション
-// TaskNotificationService.ts (100行) - 通知処理
+// git/commit.rs (200行) - コミット履歴取得
+// git/diff.rs (150行) - 差分計算
+// git/repository.rs (100行) - リポジトリオープン・状態管理
 ```
 
 ## 特殊ディレクトリ
@@ -271,7 +233,7 @@ src/
     └── tasklist.md          # タスクリスト
 ```
 
-**命名規則**: `20250115-add-user-profile` 形式
+**命名規則**: `20260702-add-commit-history` 形式
 
 ### .claude/ (Claude Code設定)
 
@@ -290,17 +252,11 @@ src/
 ### .gitignore
 
 プロジェクトで除外すべきファイル:
-- `node_modules/`
-- `dist/`
+- `target/` (Cargoのビルド出力)
 - `.env`
-- `.steering/` (タスク管理用の一時ファイル)
 - `*.log`
 - `.DS_Store`
 
-### .prettierignore, .eslintignore
+### rustfmt/clippy 対象外の設定(該当する場合)
 
-ツールで除外すべきファイル:
-- `dist/`
-- `node_modules/`
-- `.steering/`
-- `coverage/`
+`Cargo.toml` の `[workspace]`/`exclude` や、ファイル冒頭の `#[rustfmt::skip]` 等で個別に除外する。
