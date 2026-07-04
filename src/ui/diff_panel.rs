@@ -52,8 +52,14 @@ fn build_side_by_side_rows(lines: &[DiffLine]) -> Vec<(SideCell<'_>, SideCell<'_
                 }
                 let max_len = deleted.len().max(added.len());
                 for j in 0..max_len {
-                    let left = deleted.get(j).map(|l| SideCell::Line(l)).unwrap_or(SideCell::Empty);
-                    let right = added.get(j).map(|l| SideCell::Line(l)).unwrap_or(SideCell::Empty);
+                    let left = deleted
+                        .get(j)
+                        .map(|l| SideCell::Line(l))
+                        .unwrap_or(SideCell::Empty);
+                    let right = added
+                        .get(j)
+                        .map(|l| SideCell::Line(l))
+                        .unwrap_or(SideCell::Empty);
                     rows.push((left, right));
                 }
             }
@@ -97,7 +103,7 @@ fn render_side_cell(ui: &mut Ui, cell: &SideCell<'_>) {
 }
 
 pub fn show_diff_panel(ui: &mut Ui, state: &mut AppState) {
-    if state.selected_commit.is_none() {
+    if state.selected_commits.is_empty() {
         ui.centered_and_justified(|ui| {
             ui.label(
                 RichText::new("コミットを選択してください")
@@ -121,7 +127,11 @@ pub fn show_diff_panel(ui: &mut Ui, state: &mut AppState) {
         egui::pos2(available.left(), sep_screen_y - 4.0),
         egui::pos2(available.right(), sep_screen_y + 4.0),
     );
-    let sep_resp = ui.interact(sep_rect, ui.id().with("diff_split_sep"), egui::Sense::drag());
+    let sep_resp = ui.interact(
+        sep_rect,
+        ui.id().with("diff_split_sep"),
+        egui::Sense::drag(),
+    );
     if sep_resp.dragged() {
         state.diff_split_y = (file_list_height + sep_resp.drag_delta().y)
             .max(min_pane)
@@ -170,7 +180,6 @@ fn show_file_list(ui: &mut Ui, state: &mut AppState) {
 
     egui::ScrollArea::vertical()
         .id_salt("file_list_scroll")
-
         .show(ui, |ui| {
             let mut clicked_file: Option<usize> = None;
 
@@ -186,7 +195,6 @@ fn show_file_list(ui: &mut Ui, state: &mut AppState) {
                     .fill(bg)
                     .inner_margin(egui::Margin::symmetric(6, 3))
                     .show(ui, |ui| {
-
                         ui.horizontal(|ui| {
                             let (badge_text, badge_color) = match &file.status {
                                 FileStatus::Added => ("A", COLOR_ADDED_BADGE),
@@ -208,16 +216,12 @@ fn show_file_list(ui: &mut Ui, state: &mut AppState) {
                                 });
 
                             ui.add(
-                                egui::Label::new(
-                                    RichText::new(&file.path).monospace().size(12.0),
-                                )
-                                .truncate(),
+                                egui::Label::new(RichText::new(&file.path).monospace().size(12.0))
+                                    .truncate(),
                             );
 
                             if file.is_binary {
-                                ui.label(
-                                    RichText::new("(binary)").color(COLOR_META).size(11.0),
-                                );
+                                ui.label(RichText::new("(binary)").color(COLOR_META).size(11.0));
                             }
 
                             if let FileStatus::Renamed { old_path } = &file.status {
