@@ -91,11 +91,16 @@ fn render_side_cell(ui: &mut Ui, cell: &SideCell<'_>) {
                 .inner_margin(egui::Margin::symmetric(6, 1))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(
-                        RichText::new(format!("{}{}", prefix, line.content))
-                            .color(text_color)
-                            .monospace()
-                            .size(12.0),
+                    // 折り返しを許すと長い行だけ複数行になり、左右ペインの行がズレる。
+                    // 常に1行に固定し、はみ出た分は外側の ScrollArea::both() の横スクロールに委ねる。
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(format!("{}{}", prefix, line.content))
+                                .color(text_color)
+                                .monospace()
+                                .size(12.0),
+                        )
+                        .wrap_mode(egui::TextWrapMode::Extend),
                     );
                 });
         }
