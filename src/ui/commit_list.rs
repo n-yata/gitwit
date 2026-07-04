@@ -21,7 +21,7 @@ pub fn show_commit_list(ui: &mut Ui, state: &mut AppState) {
         return;
     }
 
-    let shift_held = ui.input(|i| i.modifiers.shift);
+    let ctrl_held = ui.input(|i| i.modifiers.ctrl);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         let mut clicked_idx: Option<usize> = None;
@@ -106,7 +106,7 @@ pub fn show_commit_list(ui: &mut Ui, state: &mut AppState) {
         }
 
         if let Some(idx) = clicked_idx {
-            if shift_held && !state.selected_commits.is_empty() {
+            if ctrl_held && !state.selected_commits.is_empty() {
                 state.selected_commits.retain(|&i| i != idx);
                 state.selected_commits.push(idx);
                 if state.selected_commits.len() > 2 {
