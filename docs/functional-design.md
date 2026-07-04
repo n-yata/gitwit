@@ -131,7 +131,7 @@ fn show_toolbar(ctx: &egui::Context, state: &mut AppState)
 - コミット一覧をスクロール可能なリストで表示
 - 各行にハッシュ・メッセージ・著者・日時・ブランチ名を表示
 - 通常クリックで `selected_commits` を単一選択(1件)に更新し、diff 読み込みをトリガー
-- Shift+クリックで `selected_commits` に追加し、最大2件のスライディング選択(3件目のShift+クリックで最も古いクリックの選択を追い出す)にする。2件選択時は時系列順(古い→新しい)でbase/targetを決定し、2コミット間の差分を読み込む
+- Ctrl+クリックで `selected_commits` に追加し、最大2件のスライディング選択(3件目のCtrl+クリックで最も古いクリックの選択を追い出す)にする。2件選択時は時系列順(古い→新しい)でbase/targetを決定し、2コミット間の差分を読み込む
 
 **インターフェース**:
 ```rust
@@ -213,12 +213,12 @@ impl GitRepository {
    |<-- diff 表示 --|               |                 |
 ```
 
-### UC-3: Shift+クリックで2コミット間の差分を確認する
+### UC-3: Ctrl+クリックで2コミット間の差分を確認する
 
 ```
 ユーザー      CommitListPanel    GitRepository      AppState
    |               |                 |                 |
-   |-- コミット行Shift+クリック -->|     |                 |
+   |-- コミット行Ctrl+クリック -->|     |                 |
    |               |-- selected_commits に追加(最大2件) ->|
    |               |-- selected_commits.len()==2 のため   |
    |               |   commits配列のindex(revwalk順)で古い→新しいを決定|

@@ -18,7 +18,7 @@ pub struct AppState {
     pub repo_path: Option<PathBuf>,
     pub path_input: String,
     pub commits: Vec<CommitInfo>,
-    /// クリック順で保持する選択中コミットのindex。最大2件(3件目Shift+クリックで先頭を追い出すスライディング選択)。
+    /// クリック順で保持する選択中コミットのindex。最大2件(3件目Ctrl+クリックで先頭を追い出すスライディング選択)。
     pub selected_commits: Vec<usize>,
     pub diff_files: Vec<DiffFile>,
     pub selected_file: Option<usize>,
