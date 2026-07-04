@@ -7,7 +7,7 @@ git-client/
 ├── src/                        # ソースコード
 │   ├── main.rs                 # エントリーポイント（eframe 起動）
 │   ├── app.rs                  # AppState・メインループ
-│   ├── cli.rs                  # CLI引数(ファイル/フォルダパス)のリポジトリルート解決
+│   ├── cli.rs                  # ファイル/フォルダパスのリポジトリルート解決(ドラッグ&ドロップ等から利用)
 │   ├── config.rs               # 設定ファイルの読み書き
 │   ├── git/                    # Git ロジックレイヤー
 │   │   ├── mod.rs
@@ -19,9 +19,6 @@ git-client/
 │       ├── toolbar.rs          # ToolbarPanel
 │       ├── commit_list.rs      # CommitListPanel
 │       └── diff_panel.rs       # DiffPanel（ファイル一覧 + diff 表示）
-├── scripts/                    # 補助スクリプト
-│   ├── register-context-menu.ps1    # Explorer右クリックメニュー登録(HKCU)
-│   └── unregister-context-menu.ps1  # 登録解除
 ├── tests/                      # 統合テスト
 │   └── git_integration.rs      # テスト用リポジトリを使った統合テスト
 ├── docs/                       # プロジェクトドキュメント
@@ -72,7 +69,7 @@ git-client/
 
 #### src/cli.rs
 
-**役割**: Explorer 右クリック等から渡されたCLI引数(ファイル/フォルダの絶対パス)を、Git リポジトリルートと(ファイル指定時のみ)そのファイルの相対パスに解決する。
+**役割**: ドラッグ&ドロップ等で渡されたファイル/フォルダの絶対パスを、Git リポジトリルートと(ファイル指定時のみ)そのファイルの相対パスに解決する。
 
 **配置内容**:
 - `CliTarget` 構造体

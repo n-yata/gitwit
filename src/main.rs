@@ -5,8 +5,6 @@ mod git;
 mod ui;
 
 fn main() -> eframe::Result<()> {
-    let cli_arg = std::env::args().nth(1).map(std::path::PathBuf::from);
-
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Gitwit")
@@ -17,6 +15,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Gitwit",
         options,
-        Box::new(move |cc| Ok(Box::new(app::App::new(cc, cli_arg)))),
+        Box::new(|cc| Ok(Box::new(app::App::new(cc)))),
     )
 }

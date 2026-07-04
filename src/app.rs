@@ -29,29 +29,14 @@ pub struct AppState {
     pub error_message: Option<String>,
     pub split_x: f32,
     pub diff_split_y: f32,
-    /// Explorer 右クリック等から特定ファイルを指定して起動した場合の絞り込み対象パス。
+    /// ドラッグ&ドロップ等から特定ファイル/フォルダを指定した場合の絞り込み対象パス。
     pub file_filter: Option<String>,
 }
 
 impl AppState {
-    fn new(cli_target: Option<PathBuf>) -> Self {
+    fn new() -> Self {
         let config = load_config();
-
-        let mut error_message = None;
-        let mut file_filter = None;
-
-        let (repo_path, path_input, needs_load) = match cli_target.as_deref().map(resolve_target) {
-            Some(Ok(target)) => {
-                file_filter = target.file_filter;
-                let path_input = target.repo_root.to_string_lossy().to_string();
-                (Some(target.repo_root), path_input, true)
-            }
-            Some(Err(e)) => {
-                error_message = Some(e.to_string());
-                repo_path_from_config(&config)
-            }
-            None => repo_path_from_config(&config),
-        };
+        let (repo_path, path_input, needs_load) = repo_path_from_config(&config);
 
         Self {
             repo_path,
@@ -64,10 +49,10 @@ impl AppState {
             needs_load,
             needs_diff_load: false,
             needs_file_load: false,
-            error_message,
+            error_message: None,
             split_x: 380.0,
             diff_split_y: 160.0,
-            file_filter,
+            file_filter: None,
         }
     }
 }
@@ -107,10 +92,10 @@ fn repo_path_from_config(config: &AppConfig) -> (Option<PathBuf>, String, bool) 
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, cli_target: Option<PathBuf>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         setup_japanese_font(&cc.egui_ctx);
         Self {
-            state: AppState::new(cli_target),
+            state: AppState::new(),
             repo: None,
         }
     }

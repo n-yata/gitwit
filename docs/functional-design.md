@@ -96,7 +96,7 @@ struct AppState {
     needs_file_load: bool,              // ハンク読み込みトリガー
     error_message: Option<String>,      // エラーメッセージ（表示用）
     file_filter: Option<String>,        // 特定パス配下に履歴を絞り込む場合の相対パス
-                                         // (Explorer右クリック起動・ドラッグ&ドロップ経由で設定される)
+                                         // (ドラッグ&ドロップ経由で設定される)
 }
 ```
 
