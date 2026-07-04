@@ -91,6 +91,12 @@ fn resolve_diff_oids(
     }
 }
 
+// ドロップされたファイル群から、実パスを持つ先頭の1件だけを取り出す。
+// 複数ファイル/フォルダが同時にドロップされても2件目以降は無視する。
+fn first_dropped_path(files: &[egui::DroppedFile]) -> Option<PathBuf> {
+    files.iter().find_map(|f| f.path.clone())
+}
+
 fn repo_path_from_config(config: &AppConfig) -> (Option<PathBuf>, String, bool) {
     if let Some(p) = config.last_repo_path.clone() {
         let path = PathBuf::from(&p);
@@ -154,6 +160,21 @@ impl App {
     /// 選択が1件の場合はそのコミットのoidのみを返す。
     fn selected_diff_oids(&self) -> Option<(String, Option<String>)> {
         resolve_diff_oids(&self.state.commits, &self.state.selected_commits)
+    }
+
+    // Explorer からドロップされたパスを解決し、絞り込み対象(必要ならリポジトリ自体)を切り替える。
+    fn apply_dropped_path(&mut self, path: PathBuf) {
+        match resolve_target(&path) {
+            Ok(target) => {
+                self.state.path_input = target.repo_root.to_string_lossy().to_string();
+                self.state.file_filter = target.file_filter;
+                self.state.needs_load = true;
+                self.state.error_message = None;
+            }
+            Err(e) => {
+                self.state.error_message = Some(e.to_string());
+            }
+        }
     }
 
     fn load_diff_files(&mut self) {
@@ -247,6 +268,11 @@ fn setup_japanese_font(ctx: &egui::Context) {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
+        if let Some(path) = first_dropped_path(&dropped_files) {
+            self.apply_dropped_path(path);
+        }
+
         if self.state.needs_load {
             self.state.needs_load = false;
             self.load_repo();
@@ -339,6 +365,8 @@ impl eframe::App for App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::Path;
 
     fn commit(oid: &str, time: i64) -> CommitInfo {
         CommitInfo {
@@ -389,5 +417,143 @@ mod tests {
     fn resolve_diff_oids_no_selection_returns_none() {
         let commits = vec![commit("aaaaaaa", 100)];
         assert_eq!(resolve_diff_oids(&commits, &[]), None);
+    }
+
+    fn test_state() -> AppState {
+        AppState {
+            repo_path: None,
+            path_input: String::new(),
+            commits: Vec::new(),
+            selected_commits: Vec::new(),
+            diff_files: Vec::new(),
+            selected_file: None,
+            diff_hunks: Vec::new(),
+            needs_load: false,
+            needs_diff_load: false,
+            needs_file_load: false,
+            error_message: None,
+            split_x: 380.0,
+            diff_split_y: 160.0,
+            file_filter: None,
+        }
+    }
+
+    fn test_app() -> App {
+        App {
+            state: test_state(),
+            repo: None,
+        }
+    }
+
+    fn dropped_file(path: Option<PathBuf>) -> egui::DroppedFile {
+        egui::DroppedFile {
+            path,
+            ..Default::default()
+        }
+    }
+
+    fn init_repo_with_commit(dir: &Path, file_name: &str) {
+        let repo = git2::Repository::init(dir).unwrap();
+        fs::write(dir.join(file_name), "content").unwrap();
+
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new(file_name)).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = git2::Signature::now("tester", "tester@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[])
+            .unwrap();
+    }
+
+    #[test]
+    fn first_dropped_path_returns_none_for_empty_list() {
+        assert_eq!(first_dropped_path(&[]), None);
+    }
+
+    #[test]
+    fn first_dropped_path_skips_entries_without_a_path() {
+        let files = [dropped_file(None)];
+        assert_eq!(first_dropped_path(&files), None);
+    }
+
+    #[test]
+    fn first_dropped_path_returns_the_first_entry_and_ignores_the_rest() {
+        let first = PathBuf::from("C:/repo/src/main.rs");
+        let second = PathBuf::from("C:/repo/src/lib.rs");
+        let files = [dropped_file(Some(first.clone())), dropped_file(Some(second))];
+        assert_eq!(first_dropped_path(&files), Some(first));
+    }
+
+    #[test]
+    fn first_dropped_path_skips_leading_none_and_returns_next_valid_path() {
+        let valid = PathBuf::from("C:/repo/src/main.rs");
+        let files = [dropped_file(None), dropped_file(Some(valid.clone()))];
+        assert_eq!(first_dropped_path(&files), Some(valid));
+    }
+
+    #[test]
+    fn apply_dropped_path_sets_file_filter_for_subfolder() {
+        let tmp = std::env::temp_dir().join(format!(
+            "gitwit-app-test-subdir-{}-{}",
+            std::process::id(),
+            "dropfilter"
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(tmp.join("src")).unwrap();
+        init_repo_with_commit(&tmp, "src/main.rs");
+
+        let mut app = test_app();
+        app.apply_dropped_path(tmp.join("src"));
+
+        assert_eq!(app.state.file_filter.as_deref(), Some("src"));
+        assert!(app.state.needs_load);
+        assert!(app.state.error_message.is_none());
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn apply_dropped_path_clears_file_filter_for_repo_root() {
+        let tmp = std::env::temp_dir().join(format!(
+            "gitwit-app-test-root-{}-{}",
+            std::process::id(),
+            "dropfilter"
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        init_repo_with_commit(&tmp, "readme.txt");
+
+        let mut app = test_app();
+        app.apply_dropped_path(tmp.clone());
+
+        assert!(app.state.file_filter.is_none());
+        assert!(app.state.needs_load);
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn apply_dropped_path_sets_error_and_keeps_state_for_path_outside_repo() {
+        let tmp = std::env::temp_dir().join(format!(
+            "gitwit-app-test-norepo-{}-{}",
+            std::process::id(),
+            "dropfilter"
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        let mut app = test_app();
+        app.state.path_input = "previous".to_string();
+        app.state.file_filter = Some("previous/filter".to_string());
+
+        app.apply_dropped_path(tmp.clone());
+
+        assert!(app.state.error_message.is_some());
+        assert_eq!(app.state.path_input, "previous");
+        assert_eq!(app.state.file_filter.as_deref(), Some("previous/filter"));
+        assert!(!app.state.needs_load);
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 }
