@@ -170,7 +170,7 @@ throw new [ErrorClassName]('[メッセージ]');
 [数式]
 ```
 
-**実装箇所**: `src/[path]/[file].ts`
+**実装箇所**: `src/[path]/[file].rs`
 
 **例**:
 ```

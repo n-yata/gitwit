@@ -4,7 +4,7 @@
 
 ### 1. 役割の明確化
 
-各ディレクトリは単一の明確な役割を持つべきです。
+各ディレクトリ(モジュール)は単一の明確な役割を持つべきです。
 
 **悪い例**:
 ```
@@ -17,10 +17,10 @@ src/
 **良い例**:
 ```
 src/
-├── commands/        # CLIコマンド実装
-├── services/        # ビジネスロジック
-├── repositories/    # データ永続化
-└── validators/      # 入力検証
+├── git/             # Gitロジック(git2ラッパー)
+├── ui/              # egui ウィジェット
+├── app.rs           # AppState(ViewModel)
+└── cli.rs           # CLI引数解析
 ```
 
 ### 2. レイヤー分離の徹底
@@ -29,109 +29,98 @@ src/
 
 ```
 src/
-├── ui/              # UIレイヤー
-│   └── cli/         # CLI実装
-├── services/        # サービスレイヤー
-│   └── task/        # タスク管理サービス
-└── repositories/    # データレイヤー
-    └── task/        # タスクリポジトリ
+├── ui/              # UIレイヤー(eguiウィジェット)
+│   └── commit_list.rs
+├── app.rs           # ViewModel / AppStateレイヤー
+└── git/             # Gitロジックレイヤー(git2クレート)
+    └── commit.rs
 ```
 
 ### 3. 技術要素ベースの分割(基本)
 
-関連する技術要素ごとにディレクトリを分割します:
+関連する技術要素ごとにモジュールを分割します:
 
 **基本構造**:
 ```
 src/
-├── commands/        # CLIコマンド
-├── services/        # ビジネスロジック
-├── repositories/    # データ永続化
-└── types/           # 型定義
+├── ui/              # eguiウィジェット
+├── app.rs           # AppState
+├── git/             # git2ラッパー
+└── error.rs         # エラー型定義
 ```
 
 **レイヤー構造との対応**:
 ```
-CLI/UIレイヤー      → commands/, cli/
-サービスレイヤー    → services/
-データレイヤー      → repositories/, storage/
+UIレイヤー          → ui/
+ViewModelレイヤー   → app.rs
+Gitロジックレイヤー → git/
 ```
 
 ## ディレクトリ構造の設計
 
 ### レイヤー構造の表現
 
-```typescript
+```rust
 // 悪い例: 平坦な構造
 src/
-├── TaskCLI.ts
-├── TaskService.ts
-├── TaskRepository.ts
-├── UserCLI.ts
-├── UserService.ts
-└── UserRepository.ts
+├── commit_list_widget.rs
+├── commit_service.rs
+├── commit_repository.rs
+├── diff_widget.rs
+├── diff_service.rs
+└── diff_repository.rs
 
 // 良い例: レイヤーを明確に
 src/
-├── cli/
-│   ├── TaskCLI.ts
-│   └── UserCLI.ts
-├── services/
-│   ├── TaskService.ts
-│   └── UserService.ts
-└── repositories/
-    ├── TaskRepository.ts
-    └── UserRepository.ts
+├── ui/
+│   ├── commit_list.rs
+│   └── diff_view.rs
+├── app.rs           # commit_service, diff_service 相当のロジックを集約
+└── git/
+    ├── commit.rs
+    └── diff.rs
 ```
 
-### テストディレクトリの配置
+### テストの配置
 
-**推奨構造**:
+**推奨構造(Rustの慣習)**:
 ```
 project/
 ├── src/
-│   └── services/
-│       └── TaskService.ts
+│   └── git/
+│       └── commit.rs    # 末尾に #[cfg(test)] mod tests を配置(ユニットテスト)
 └── tests/
-    ├── unit/
-    │   └── services/
-    │       └── TaskService.test.ts
-    ├── integration/
-    └── e2e/
+    └── git_integration.rs   # 統合テスト(実際のgit2リポジトリを使用)
 ```
 
 **理由**:
-- テストコードが本番コードと分離
-- ビルド時にテストを除外しやすい
-- テストタイプごとに整理可能
+- ユニットテストは対象コードと同じファイルに置くのが Rust の慣習(コンパイラが `#[cfg(test)]` でテストビルド時のみ含める)
+- 統合テストは `tests/` ディレクトリに分離し、クレートの公開APIのみを経由してテストする
+- `cargo test` で両方まとめて実行できる
 
 ## 命名規則のベストプラクティス
 
-### ディレクトリ名の原則
+### ディレクトリ・モジュール名の原則
 
-**1. 複数形を使う (レイヤーディレクトリ)**
+**1. 複数形/単数形は役割に応じて自然な方を使う**
 ```
-✅ services/
-✅ repositories/
-✅ controllers/
+✅ git/ (Gitロジック一式)
+✅ ui/ (UIウィジェット一式)
 
-❌ service/
-❌ repository/
-❌ controller/
+❌ stuffs/
+❌ helper/
 ```
 
-理由: 複数のファイルを格納するため
-
-**2. kebab-caseを使う**
+**2. snake_case を使う**
 ```
-✅ task-management/
-✅ user-authentication/
+✅ commit_list.rs
+✅ diff_view.rs
 
-❌ TaskManagement/
-❌ userAuthentication/
+❌ CommitList.rs
+❌ diffView.rs
 ```
 
-理由: URL、ファイルシステムとの互換性
+理由: Rust の公式スタイルガイド(RFC 430)でモジュール名は snake_case と定められている
 
 **3. 具体的な名前を使う**
 ```
@@ -146,130 +135,99 @@ project/
 
 ### ファイル名の原則
 
-**1. クラスファイル: PascalCase + 役割接尾辞**
-```typescript
-// サービスクラス
-TaskService.ts
-UserAuthenticationService.ts
+**1. モジュールファイル: snake_case**
+```rust
+// Gitロジックのモジュール
+commit.rs
+diff.rs
 
-// リポジトリクラス
-TaskRepository.ts
-UserRepository.ts
-
-// コントローラークラス
-TaskController.ts
+// UIウィジェットのモジュール
+commit_list.rs
+diff_view.rs
 ```
 
-**2. 関数ファイル: camelCase + 動詞で始める**
-```typescript
+**2. 関数を集めたユーティリティファイル: snake_case + 動詞由来の名前**
+```rust
 // ユーティリティ関数
-formatDate.ts
-validateEmail.ts
-parseCommandArguments.ts
+format_date.rs
+validate_path.rs
 ```
 
-**3. 型定義ファイル: PascalCase または kebab-case**
-```typescript
-// インターフェース定義
-Task.ts
-UserProfile.ts
-
-// 型定義集
-task-types.d.ts
-api-types.d.ts
+**3. 型定義: モジュール名と対応させる**
+```rust
+// commit.rs 内に pub struct CommitInfo を定義
+// diff.rs 内に pub struct DiffLine, pub enum DiffLineKind を定義
 ```
 
-**4. 定数ファイル: UPPER_SNAKE_CASE または kebab-case**
-```typescript
+**4. 定数専用モジュール: snake_case**
+```rust
 // 定数定義
-API_ENDPOINTS.ts
-ERROR_MESSAGES.ts
-
-// または
-api-endpoints.ts
-error-messages.ts
+constants.rs
+error_messages.rs
 ```
 
 ## 依存関係の管理
 
 ### レイヤー間の依存ルール
 
-```typescript
+```rust
 // ✅ 良い例: 上位レイヤーから下位レイヤーへの依存
-// cli/TaskCLI.ts
-import { TaskService } from '../services/TaskService';
+// app.rs
+use crate::git::GitRepository;
 
-class TaskCLI {
-  constructor(private taskService: TaskService) {}
+struct AppState {
+    repository: GitRepository,
 }
 
 // ❌ 悪い例: 下位レイヤーから上位レイヤーへの依存
-// services/TaskService.ts
-import { TaskCLI } from '../cli/TaskCLI';  // 禁止！
+// git/commit.rs
+use crate::app::AppState; // 禁止！ Gitロジックがアプリ状態に依存してはならない
 ```
 
 ### 循環依存の回避
 
 **問題のあるコード**:
-```typescript
-// services/TaskService.ts
-import { UserService } from './UserService';
+```rust
+// git/commit.rs
+use crate::git::diff::DiffService;
 
-export class TaskService {
-  constructor(private userService: UserService) {}
+pub struct CommitService {
+    diff_service: DiffService,
 }
 
-// services/UserService.ts
-import { TaskService } from './TaskService';  // 循環依存！
+// git/diff.rs
+use crate::git::commit::CommitService; // 循環依存！
 
-export class UserService {
-  constructor(private taskService: TaskService) {}
-}
-```
-
-**解決策1: 共通の型定義を抽出**
-```typescript
-// types/Service.ts
-export interface ITaskService { /* ... */ }
-export interface IUserService { /* ... */ }
-
-// services/TaskService.ts
-import type { IUserService } from '../types/Service';
-
-export class TaskService {
-  constructor(private userService: IUserService) {}
-}
-
-// services/UserService.ts
-import type { ITaskService } from '../types/Service';
-
-export class UserService {
-  constructor(private taskService: ITaskService) {}
+pub struct DiffService {
+    commit_service: CommitService,
 }
 ```
 
-**解決策2: 依存関係を見直す**
-```typescript
-// 共通の機能を別サービスに抽出
-// services/NotificationService.ts
-export class NotificationService {
-  notifyTaskAssignment(taskId: string, userId: string): void {
-    // 通知処理
-  }
+**解決策1: トレイトで抽象化して依存方向を反転させる**
+```rust
+// git/traits.rs
+pub trait DiffLookup {
+    fn find_diff(&self, commit_id: &str) -> Option<DiffLine>;
 }
 
-// services/TaskService.ts
-import { NotificationService } from './NotificationService';
+// git/commit.rs
+use crate::git::traits::DiffLookup;
 
-export class TaskService {
-  constructor(private notificationService: NotificationService) {}
+pub struct CommitService<D: DiffLookup> {
+    diff_lookup: D,
+}
+```
+
+**解決策2: 共通の機能を別モジュールに抽出**
+```rust
+// git/repository.rs に共通ロジックを集約
+pub struct GitRepository {
+    inner: git2::Repository,
 }
 
-// services/UserService.ts
-import { NotificationService } from './NotificationService';
-
-export class UserService {
-  constructor(private notificationService: NotificationService) {}
+impl GitRepository {
+    pub fn load_commits(&self, limit: usize) -> Result<Vec<CommitInfo>, GitError> { todo!() }
+    pub fn load_diff(&self, commit_id: &str) -> Result<Vec<DiffLine>, GitError> { todo!() }
 }
 ```
 
@@ -280,90 +238,75 @@ export class UserService {
 **標準パターン**:
 ```
 src/
-├── commands/
-│   └── TaskCommand.ts
-├── services/
-│   ├── TaskService.ts
-│   └── UserService.ts
-├── repositories/
-│   ├── TaskRepository.ts
-│   └── UserRepository.ts
-├── types/
-│   ├── Task.ts
-│   └── User.ts
-├── validators/
-│   └── TaskValidator.ts
-└── index.ts
+├── main.rs
+├── app.rs           # AppState
+├── cli.rs           # CLI引数解析
+├── error.rs         # GitError等のエラー型
+├── git/
+│   ├── mod.rs
+│   ├── commit.rs
+│   └── diff.rs
+└── ui/
+    ├── mod.rs
+    ├── commit_list.rs
+    └── diff_view.rs
 ```
 
 **理由**:
 - レイヤーごとに責務が明確
 - 後からのリファクタリングが不要
-- チーム開発で統一しやすい
+- 一人開発でも構造が把握しやすい
 
 ### モジュール分離のタイミング
 
 **分離を検討する兆候**:
-1. ディレクトリ内のファイル数が10個以上
+1. ファイルの行数が300行を超える
 2. 関連する機能がまとまっている
 3. 独立してテスト可能
 4. 他の機能への依存が少ない
 
 **分離の手順**:
-```typescript
-// Before: 全てservices/に配置
-services/
-├── TaskService.ts
-├── TaskValidationService.ts
-├── TaskNotificationService.ts
-├── UserService.ts
-└── UserAuthService.ts
+```rust
+// Before: 全て git.rs に配置
+git.rs (800行)
 
 // After: 機能ごとにモジュール化
-modules/
-├── task/
-│   ├── TaskService.ts
-│   ├── TaskValidationService.ts
-│   └── TaskNotificationService.ts
-└── user/
-    ├── UserService.ts
-    └── UserAuthService.ts
+git/
+├── mod.rs
+├── commit.rs        # コミット履歴取得
+├── diff.rs          # 差分計算
+└── repository.rs    # リポジトリオープン・状態管理
 ```
 
 ## 特殊なケースの対応
 
 ### 共有コードの配置
 
-**shared/ または common/ ディレクトリ**
+**共通ユーティリティの配置**
 ```
 src/
-├── shared/
-│   ├── utils/           # 汎用ユーティリティ
-│   ├── types/           # 共通型定義
-│   └── constants/       # 共通定数
-├── commands/
-├── services/
-└── repositories/
+├── error.rs         # 全レイヤー共通のエラー型
+├── ui/
+├── app.rs
+└── git/
 ```
 
 **ルール**:
-- 本当に複数のレイヤーで使われるもののみ
-- 単一レイヤーでしか使わないものは含めない
+- 本当に複数のレイヤーで使われるもののみ `error.rs` 等に置く
+- 単一レイヤーでしか使わないものは各モジュール内に留める
 
 ### 設定ファイルの管理(該当する場合)
 
 ```
-config/
-├── default.ts           # デフォルト設定
-└── constants.ts         # 定数定義
+src/
+└── config.rs        # アプリ設定(ウィンドウサイズ等)の読み込み・保存
 ```
 
 ### スクリプトの管理(該当する場合)
 
 ```
 scripts/
-├── build.sh             # ビルドスクリプト
-└── dev-tools.ts         # 開発補助スクリプト
+└── register-context-menu.ps1   # Explorer右クリックメニュー登録スクリプト
 ```
 
 ## ドキュメント配置
@@ -372,7 +315,7 @@ scripts/
 
 **プロジェクトルート**:
 - `README.md`: プロジェクト概要
-- `CONTRIBUTING.md`: 貢献ガイド
+- `CLAUDE.md`: プロジェクトメモリ・開発ルール
 - `LICENSE`: ライセンス
 
 **docs/ ディレクトリ**:
@@ -384,15 +327,15 @@ scripts/
 - `glossary.md`: 用語集
 
 **ソースコード内**:
-- TSDoc/JSDocコメント: 関数・クラスの説明
+- `///` ドキュメントコメント: 公開関数・構造体の説明(`pub` のみ)
 
 ## チェックリスト
 
 - [ ] 各ディレクトリの役割が明確に定義されている
 - [ ] レイヤー構造がディレクトリに反映されている
-- [ ] 命名規則が一貫している
-- [ ] テストコードの配置方針が決まっている
-- [ ] 依存関係のルールが明確である
+- [ ] 命名規則(snake_case等)が一貫している
+- [ ] テストコードの配置方針(ユニット/統合)が決まっている
+- [ ] 依存関係のルール(UI→AppState→Gitの一方向)が明確である
 - [ ] 循環依存がない
 - [ ] スケーリング戦略が考慮されている
 - [ ] 共有コードの配置ルールが定義されている

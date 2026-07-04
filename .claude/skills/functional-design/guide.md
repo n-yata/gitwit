@@ -50,57 +50,51 @@ graph TB
 ```mermaid
 graph TB
     User[ユーザー]
-    CLI[CLIインターフェース]
-    Commander[Commander.js]
-    TaskManager[TaskManager]
-    PriorityEstimator[PriorityEstimator]
-    FileStorage[FileStorage]
-    JSON[(tasks.json)]
+    UI[eguiウィジェット]
+    AppState[AppState]
+    GitRepository[GitRepository]
+    Libgit2[(git2 / libgit2)]
 
-    User --> CLI
-    CLI --> Commander
-    Commander --> TaskManager
-    TaskManager --> PriorityEstimator
-    TaskManager --> FileStorage
-    FileStorage --> JSON
+    User --> UI
+    UI --> AppState
+    AppState --> GitRepository
+    GitRepository --> Libgit2
 ```
 
 ### ステップ3: データモデル定義
 
-#### TypeScript型定義で明確に
+#### Rust構造体で明確に
 
-データモデルはTypeScriptのインターフェースで定義します。
+データモデルはRustの構造体(`struct`)・列挙型(`enum`)で定義します。
 
-**基本的なTask型の例**:
-```typescript
-interface Task {
-  id: string;                    // UUID v4
-  title: string;                 // 1-200文字
-  description?: string;          // オプション、Markdown形式
-  status: TaskStatus;            // 'todo' | 'in_progress' | 'completed'
-  priority: TaskPriority;        // 'high' | 'medium' | 'low'
-  estimatedPriority?: TaskPriority;  // 自動推定された優先度
-  dueDate?: Date;                // 期限
-  createdAt: Date;               // 作成日時
-  updatedAt: Date;               // 更新日時
-  statusHistory?: StatusChange[]; // ステータス変更履歴
+**基本的なCommitInfo型の例**:
+```rust
+pub struct CommitInfo {
+    pub id: String,                  // コミットハッシュ(短縮形)
+    pub summary: String,             // 1行目のコミットメッセージ
+    pub author: String,              // 著者名
+    pub timestamp: i64,              // Unixタイムスタンプ
+    pub parent_ids: Vec<String>,     // 親コミットのハッシュ
 }
 
-type TaskStatus = 'todo' | 'in_progress' | 'completed';
-type TaskPriority = 'high' | 'medium' | 'low';
+pub enum DiffLineKind {
+    Context,
+    Addition,
+    Deletion,
+}
 
-interface StatusChange {
-  from: TaskStatus;
-  to: TaskStatus;
-  changedAt: Date;
+pub struct StatusChange {
+    pub from: TaskStatus,
+    pub to: TaskStatus,
+    pub changed_at: i64,
 }
 ```
 
 **重要なポイント**:
 - 各フィールドにコメントで説明を追加
-- 制約（文字数、形式など）を明記
-- オプションフィールドには`?`を付ける
-- 型エイリアスで可読性を向上
+- 制約(文字数、形式など)を明記
+- 必須ではないフィールドは `Option<T>` で表現する
+- `enum` で取りうる値を型として表現し、不正な値を型レベルで排除する
 
 #### ER図の作成
 
@@ -129,60 +123,49 @@ erDiagram
 
 各レイヤーの責務を明確にします。
 
-#### CLIレイヤー
+#### UIレイヤー(egui ウィジェット)
 
 **責務**: ユーザー入力の受付、バリデーション、結果の表示
 
-```typescript
-// CommandLineInterface
-class CLI {
-  // ユーザー入力を受け付ける
-  parseArguments(): Command;
+```rust
+// commit_list ウィジェット
+impl CommitListView {
+    // ユーザーのクリック等の入力を受け付け、AppStateを更新する
+    fn handle_input(&self, state: &mut AppState) { todo!() }
 
-  // 結果を表示する
-  displayResult(result: Result): void;
-
-  // エラーを表示する
-  displayError(error: Error): void;
+    // 結果を描画する
+    fn render(&self, ui: &mut egui::Ui, state: &AppState) { todo!() }
 }
 ```
 
-#### サービスレイヤー
+#### ViewModel / AppStateレイヤー
 
-**責務**: ビジネスロジックの実装
+**責務**: ビジネスロジックの実装、UI状態の保持
 
-```typescript
-// TaskManager
-class TaskManager {
-  // タスクを作成する
-  createTask(data: CreateTaskData): Task;
+```rust
+impl AppState {
+    // コミット一覧を読み込む
+    fn load_commits(&mut self) -> Result<(), GitError> { todo!() }
 
-  // タスク一覧を取得する
-  listTasks(filter?: FilterOptions): Task[];
+    // フィルタ条件付きでコミット一覧を絞り込む
+    fn filtered_commits(&self, filter: Option<&FilterOptions>) -> Vec<&CommitInfo> { todo!() }
 
-  // タスクを更新する
-  updateTask(id: string, data: UpdateTaskData): Task;
-
-  // タスクを削除する
-  deleteTask(id: string): void;
+    // ファイルフィルタを更新する
+    fn set_file_filter(&mut self, path: PathBuf) { todo!() }
 }
 ```
 
-#### データレイヤー
+#### Gitロジックレイヤー(git2クレート)
 
-**責務**: データの永続化と取得
+**責務**: データの取得と永続化
 
-```typescript
-// FileStorage
-class FileStorage {
-  // データを保存する
-  save(data: any): void;
+```rust
+impl GitRepository {
+    // コミット履歴を取得する
+    fn load_commits(&self, limit: usize) -> Result<Vec<CommitInfo>, GitError> { todo!() }
 
-  // データを読み込む
-  load(): any;
-
-  // ファイルが存在するか確認する
-  exists(): boolean;
+    // リポジトリが開けるか確認する
+    fn exists(path: &Path) -> bool { todo!() }
 }
 ```
 
@@ -207,18 +190,17 @@ class FileStorage {
 ```
 
 **計算式**:
-```typescript
-function calculateDeadlineScore(dueDate?: Date): number {
-  if (!dueDate) return 20;
+```rust
+fn calculate_deadline_score(due_date: Option<DateTime<Utc>>) -> u32 {
+    let Some(due_date) = due_date else { return 20 };
 
-  const now = new Date();
-  const daysRemaining = Math.floor((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    let days_remaining = (due_date - Utc::now()).num_days();
 
-  if (daysRemaining < 0) return 100;  // 期限超過
-  if (daysRemaining <= 3) return 90;
-  if (daysRemaining <= 7) return 70;
-  if (daysRemaining <= 14) return 50;
-  return 30;
+    if days_remaining < 0 { return 100; }  // 期限超過
+    if days_remaining <= 3 { return 90; }
+    if days_remaining <= 7 { return 70; }
+    if days_remaining <= 14 { return 50; }
+    30
 }
 ```
 
@@ -232,16 +214,15 @@ function calculateDeadlineScore(dueDate?: Date): number {
 ```
 
 **計算式**:
-```typescript
-function calculateAgeScore(createdAt: Date): number {
-  const now = new Date();
-  const daysOld = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+```rust
+fn calculate_age_score(created_at: DateTime<Utc>) -> u32 {
+    let days_old = (Utc::now() - created_at).num_days();
 
-  if (daysOld >= 30) return 100;
-  if (daysOld >= 21) return 80;
-  if (daysOld >= 14) return 60;
-  if (daysOld >= 7) return 40;
-  return 20;
+    if days_old >= 30 { return 100; }
+    if days_old >= 21 { return 80; }
+    if days_old >= 14 { return 60; }
+    if days_old >= 7 { return 40; }
+    20
 }
 ```
 
@@ -253,11 +234,13 @@ function calculateAgeScore(createdAt: Date): number {
 ```
 
 **計算式**:
-```typescript
-function calculateStatusScore(status: TaskStatus): number {
-  if (status === 'in_progress') return 100;
-  if (status === 'todo') return 50;
-  return 0;  // completed
+```rust
+fn calculate_status_score(status: &TaskStatus) -> u32 {
+    match status {
+        TaskStatus::InProgress => 100,
+        TaskStatus::Todo => 50,
+        TaskStatus::Completed => 0,
+    }
 }
 ```
 
@@ -269,13 +252,13 @@ function calculateStatusScore(status: TaskStatus): number {
 ```
 
 **計算式**:
-```typescript
-function calculateTotalScore(task: Task): number {
-  const deadlineScore = calculateDeadlineScore(task.dueDate);
-  const ageScore = calculateAgeScore(task.createdAt);
-  const statusScore = calculateStatusScore(task.status);
+```rust
+fn calculate_total_score(task: &Task) -> f64 {
+    let deadline_score = calculate_deadline_score(task.due_date);
+    let age_score = calculate_age_score(task.created_at);
+    let status_score = calculate_status_score(&task.status);
 
-  return (deadlineScore * 0.5) + (ageScore * 0.2) + (statusScore * 0.3);
+    (deadline_score as f64 * 0.5) + (age_score as f64 * 0.2) + (status_score as f64 * 0.3)
 }
 ```
 
@@ -464,7 +447,7 @@ Claude Codeの指摘に基づいて改善します。
 
 1. **PRDとの整合性**: PRDで定義された要件を正確に反映
 2. **Mermaid記法の活用**: 図表で視覚的に表現
-3. **TypeScript型定義**: データモデルを明確に
+3. **Rust型定義(struct/enum)**: データモデルを明確に
 4. **詳細なアルゴリズム設計**: 複雑なロジックは具体的に
 5. **レイヤー分離**: 各コンポーネントの責務を明確に
 6. **実装可能なレベル**: 開発者が迷わず実装できる詳細度
