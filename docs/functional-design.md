@@ -95,6 +95,8 @@ struct AppState {
     needs_diff_load: bool,              // diff ファイル一覧読み込みトリガー
     needs_file_load: bool,              // ハンク読み込みトリガー
     error_message: Option<String>,      // エラーメッセージ（表示用）
+    file_filter: Option<String>,        // 特定パス配下に履歴を絞り込む場合の相対パス
+                                         // (Explorer右クリック起動・ドラッグ&ドロップ経由で設定される)
 }
 ```
 
@@ -206,6 +208,28 @@ impl GitRepository {
    |               |                 |  diff_hunks 更新 |
    |<-- diff 表示 --|               |                 |
 ```
+
+### UC-3: Explorer からドラッグ&ドロップして履歴を絞り込む
+
+```
+ユーザー         OS(Explorer)      App::update       AppState        GitRepository
+   |                 |                  |               |                |
+   |-- ファイル/フォルダをアプリウィンドウへドラッグ&ドロップ ------------->|
+   |                 |-- dropped_files -->|              |                |
+   |                 |                  |-- first_dropped_path() -->|     |
+   |                 |                  |-- resolve_target(path) --------->|
+   |                 |                  |<-- CliTarget(repo_root, file_filter) |
+   |                 |                  |-- path_input/file_filter を更新、needs_load=true -->|
+   |                 |                  |-- load_repo() -->|              |
+   |                 |                  |                 |-- load_commits[_for_path]() ---->|
+   |                 |                  |                 |<-- commits ---------------------|
+   |<-- 絞り込まれたコミット一覧を表示 ------------------------------------|
+```
+
+**仕様**:
+- 複数ファイル/フォルダが同時にドロップされた場合は先頭の1件のみを対象とする
+- 現在開いているリポジトリと異なるリポジトリ配下のパスがドロップされた場合は、そのリポジトリへ切り替える
+- Git リポジトリ配下でないパスがドロップされた場合は `error_message` にエラーを設定し、現在の表示状態は変更しない
 
 ## 画面遷移図
 
