@@ -2,7 +2,7 @@ use egui::{Color32, RichText, Ui};
 
 use crate::{
     app::AppState,
-    git::{DiffLine, DiffLineKind, FileStatus},
+    git::{DiffFile, DiffLine, DiffLineKind, FileStatus},
 };
 
 const COLOR_ADDED_BG: Color32 = Color32::from_rgb(221, 244, 220);
@@ -19,6 +19,32 @@ const COLOR_DELETED_BADGE: Color32 = Color32::from_rgb(209, 36, 47);
 const COLOR_MODIFIED_BADGE: Color32 = Color32::from_rgb(0, 117, 202);
 const COLOR_RENAMED_BADGE: Color32 = Color32::from_rgb(108, 117, 125);
 const COLOR_EMPTY_BG: Color32 = Color32::from_rgb(240, 240, 240);
+const COLOR_FILTER_TARGET: Color32 = Color32::from_rgb(230, 81, 0);
+const COLOR_FILTER_TARGET_BG: Color32 = Color32::from_rgb(255, 243, 224);
+
+/// パス区切りを `/` に正規化する（Windowsの `\` 混在パス対策）。
+fn normalize_path(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
+/// `file` が `file_filter` で絞り込まれた対象（ファイル本体 or そのフォルダ配下）かどうかを判定する。
+/// リネームされたファイルは旧パスも判定対象に含める。
+fn file_matches_filter(file: &DiffFile, filter: &str) -> bool {
+    let filter = normalize_path(filter);
+    let matches_path = |path: &str| {
+        let path = normalize_path(path);
+        path == filter || path.starts_with(&format!("{}/", filter))
+    };
+    if matches_path(&file.path) {
+        return true;
+    }
+    if let FileStatus::Renamed { old_path } = &file.status {
+        if matches_path(old_path.as_str()) {
+            return true;
+        }
+    }
+    false
+}
 
 /// 左右比較（修正前/修正後）の1行分のセル。
 enum SideCell<'a> {
@@ -190,15 +216,26 @@ fn show_file_list(ui: &mut Ui, state: &mut AppState) {
 
             for (idx, file) in state.diff_files.iter().enumerate() {
                 let is_selected = state.selected_file == Some(idx);
+                let is_filter_target = state
+                    .file_filter
+                    .as_deref()
+                    .is_some_and(|filter| file_matches_filter(file, filter));
                 let bg = if is_selected {
                     COLOR_FILE_SELECTED
+                } else if is_filter_target {
+                    COLOR_FILTER_TARGET_BG
                 } else {
                     Color32::TRANSPARENT
                 };
 
-                let response = egui::Frame::new()
+                let mut frame = egui::Frame::new()
                     .fill(bg)
-                    .inner_margin(egui::Margin::symmetric(6, 3))
+                    .inner_margin(egui::Margin::symmetric(6, 3));
+                if is_filter_target {
+                    frame = frame.stroke(egui::Stroke::new(1.0, COLOR_FILTER_TARGET));
+                }
+
+                let response = frame
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             let (badge_text, badge_color) = match &file.status {
@@ -220,10 +257,13 @@ fn show_file_list(ui: &mut Ui, state: &mut AppState) {
                                     );
                                 });
 
-                            ui.add(
-                                egui::Label::new(RichText::new(&file.path).monospace().size(12.0))
-                                    .truncate(),
-                            );
+                            let path_text = RichText::new(&file.path).monospace().size(12.0);
+                            let path_text = if is_filter_target {
+                                path_text.color(COLOR_FILTER_TARGET).strong()
+                            } else {
+                                path_text
+                            };
+                            ui.add(egui::Label::new(path_text).truncate());
 
                             if file.is_binary {
                                 ui.label(RichText::new("(binary)").color(COLOR_META).size(11.0));
@@ -323,4 +363,60 @@ fn show_diff_view(ui: &mut Ui, state: &mut AppState) {
                 ui.add_space(4.0);
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(path: &str, status: FileStatus) -> DiffFile {
+        DiffFile {
+            path: path.to_string(),
+            status,
+            is_binary: false,
+        }
+    }
+
+    #[test]
+    fn file_matches_filter_exact_path_match() {
+        let f = file("src/app.rs", FileStatus::Modified);
+        assert!(file_matches_filter(&f, "src/app.rs"));
+    }
+
+    #[test]
+    fn file_matches_filter_directory_prefix_match() {
+        let f = file("src/ui/diff_panel.rs", FileStatus::Modified);
+        assert!(file_matches_filter(&f, "src/ui"));
+    }
+
+    #[test]
+    fn file_matches_filter_rejects_unrelated_file() {
+        let f = file("src/ui/toolbar.rs", FileStatus::Modified);
+        assert!(!file_matches_filter(&f, "src/app.rs"));
+    }
+
+    #[test]
+    fn file_matches_filter_rejects_sibling_with_shared_prefix() {
+        // "src/app" は "src/app.rs" のディレクトリ配下ではないため一致しない
+        let f = file("src/app.rs", FileStatus::Modified);
+        assert!(!file_matches_filter(&f, "src/ap"));
+    }
+
+    #[test]
+    fn file_matches_filter_matches_renamed_old_path() {
+        let f = file(
+            "src/new_name.rs",
+            FileStatus::Renamed {
+                old_path: "src/old_name.rs".to_string(),
+            },
+        );
+        assert!(file_matches_filter(&f, "src/old_name.rs"));
+        assert!(file_matches_filter(&f, "src/new_name.rs"));
+    }
+
+    #[test]
+    fn file_matches_filter_normalizes_windows_path_separators() {
+        let f = file("src\\ui\\diff_panel.rs", FileStatus::Modified);
+        assert!(file_matches_filter(&f, "src/ui"));
+    }
 }
