@@ -1,0 +1,76 @@
+name: Release
+
+# Gitタグ (v*.*.*形式、例: v0.1.0) がpushされたら起動する。
+# Cargo.tomlのversionとタグが一致することを検証したうえで、
+# Windows向けにビルドしてGitHub Releaseへexeを添付する。
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# 最小権限の原則: Release作成に必要な contents:write のみ付与する。
+# デフォルトの GITHUB_TOKEN 権限（読み書き広め）は使わない。
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and publish Windows release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Verify tag matches Cargo.toml version
+        shell: bash
+        env:
+          # ${{ }} 展開をrunスクリプトへ直接埋め込まず、env経由で渡す
+          # (GitHub Actions公式推奨のインジェクション対策パターン)。
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # タグ名から先頭の "v" を除去 (例: v0.1.0 -> 0.1.0)
+          TAG_VERSION="${TAG_NAME#v}"
+
+          # Cargo.tomlの [package] version = "x.y.z" を抽出する。
+          # cargo metadataはワークスペース全体のJSONを返すため、
+          # ここでは軽量に grep/sed で [package] セクション直下のversionのみを取り出す。
+          CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/version[[:space:]]*=[[:space:]]*"([^"]+)"/\1/')
+
+          echo "Tag version:    ${TAG_VERSION}"
+          echo "Cargo.toml version: ${CARGO_VERSION}"
+
+          if [ "${TAG_VERSION}" != "${CARGO_VERSION}" ]; then
+            echo "::error::タグのバージョン (${TAG_VERSION}) と Cargo.toml の version (${CARGO_VERSION}) が一致しません。"
+            exit 1
+          fi
+
+          echo "バージョン整合性チェックOK: ${TAG_VERSION}"
+
+      - name: Build release binary
+        shell: bash
+        run: cargo build --release --locked
+
+      - name: Package artifact
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          PACKAGE_NAME="gitwit-${TAG_NAME}-windows-x86_64"
+          mkdir -p dist
+          cp target/release/gitwit.exe "dist/gitwit.exe"
+
+          cd dist
+          7z a "${PACKAGE_NAME}.zip" "gitwit.exe"
+          echo "ARTIFACT_PATH=dist/${PACKAGE_NAME}.zip" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
+        with:
+          files: ${{ env.ARTIFACT_PATH }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true

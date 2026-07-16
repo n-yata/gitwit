@@ -142,6 +142,46 @@ PR 作成前に以下を全て確認する:
 - [ ] セキュリティレビュー（クルトワ）完了
 - [ ] `retrospective.md` を作成した（学びがある場合）
 
+### リリース手順
+
+`main` に取り込まれた変更を配布可能な exe として公開する手順。`.github/workflows/release.yml`
+が Git タグの push をトリガーに Windows 向けビルド・GitHub Release 作成まで自動で行う。
+
+**トリガー**: `v*.*.*` 形式のタグ push（例: `v0.1.0`）
+
+**CI が自動でやること**:
+1. タグのバージョン（例 `v0.1.0` の `0.1.0`）と `Cargo.toml` の `version` が一致するか検証（不一致ならビルド失敗）
+2. `windows-latest` ランナーで `cargo build --release --locked`
+3. `gitwit.exe` を zip にまとめる
+4. GitHub Release を作成し、zip を添付。リリースノートは GitHub の自動生成機能（コミットログベース）を使う
+
+**手順（バージョンを上げてリリースする場合）**:
+
+```powershell
+# 1. Cargo.toml の version を更新（例: 0.1.0 -> 0.2.0）
+#    [package] version = "0.2.0"
+
+# 2. Cargo.lock を最新化してコミット
+cargo build --release
+git add Cargo.toml Cargo.lock
+git commit -m "chore: bump version to 0.2.0"
+
+# 3. main に取り込まれていることを確認してからタグを打つ
+#    タグの値は Cargo.toml の version と "v" プレフィックスで完全一致させること
+git checkout main
+git pull
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+タグを push すると Actions が自動で起動し、成功すれば GitHub の Releases ページに
+`gitwit-v0.2.0-windows-x86_64.zip` が公開される。
+
+**注意点**:
+- タグと `Cargo.toml` の `version` が一致しないとビルド段階で失敗する（先に Cargo.toml を更新してからタグを打つこと）
+- 同じタグ名を再利用しての再リリースはサポートしない（バージョンを上げてタグを打ち直す）
+- ワークフローの `permissions` は `contents: write` のみに絞っている（Release 作成に必要な最小権限）
+
 ## テスト戦略
 
 ### テストの種類と方針
