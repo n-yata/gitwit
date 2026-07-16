@@ -68,9 +68,19 @@ jobs:
           7z a "${PACKAGE_NAME}.zip" "gitwit.exe"
           echo "ARTIFACT_PATH=dist/${PACKAGE_NAME}.zip" >> "$GITHUB_ENV"
 
+      - name: Generate checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum "$(basename "${ARTIFACT_PATH}")" > "$(basename "${ARTIFACT_PATH}").sha256"
+          echo "CHECKSUM_PATH=${ARTIFACT_PATH}.sha256" >> "$GITHUB_ENV"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
         with:
-          files: ${{ env.ARTIFACT_PATH }}
+          files: |
+            ${{ env.ARTIFACT_PATH }}
+            ${{ env.CHECKSUM_PATH }}
           generate_release_notes: true
           fail_on_unmatched_files: true
