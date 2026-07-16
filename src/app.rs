@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::{
     cli::resolve_target,
     config::{load_config, save_config, AppConfig},
+    export::{build_export_html, ExportEntry},
     git::{CommitInfo, DiffFile, DiffHunk, GitRepository},
     ui::{commit_list::show_commit_list, diff_panel::show_diff_panel, toolbar::show_toolbar},
 };
@@ -26,6 +27,7 @@ pub struct AppState {
     pub needs_load: bool,
     pub needs_diff_load: bool,
     pub needs_file_load: bool,
+    pub needs_export: bool,
     pub error_message: Option<String>,
     pub split_x: f32,
     pub diff_split_y: f32,
@@ -49,6 +51,7 @@ impl AppState {
             needs_load,
             needs_diff_load: false,
             needs_file_load: false,
+            needs_export: false,
             error_message: None,
             split_x: 380.0,
             diff_split_y: 160.0,
@@ -80,6 +83,10 @@ fn resolve_diff_oids(
 // 複数ファイル/フォルダが同時にドロップされても2件目以降は無視する。
 fn first_dropped_path(files: &[egui::DroppedFile]) -> Option<PathBuf> {
     files.iter().find_map(|f| f.path.clone())
+}
+
+fn short_oid(oid: &str) -> &str {
+    &oid[..7.min(oid.len())]
 }
 
 fn repo_path_from_config(config: &AppConfig) -> (Option<PathBuf>, String, bool) {
@@ -186,6 +193,60 @@ impl App {
         }
     }
 
+    /// 選択中コミット範囲の全変更ファイルについてhunksを収集し、HTMLとして書き出す。
+    /// 保存先はネイティブの保存ダイアログでユーザーに選ばせる。キャンセル時は何もしない。
+    fn export_diff_html(&mut self) {
+        let Some((base_oid, target_oid)) = self.selected_diff_oids() else {
+            return;
+        };
+        let Some(repo) = &self.repo else {
+            return;
+        };
+
+        let mut entries = Vec::with_capacity(self.state.diff_files.len());
+        for file in &self.state.diff_files {
+            if file.is_binary {
+                entries.push(ExportEntry::new(file.clone(), Vec::new()));
+                continue;
+            }
+            let result = match &target_oid {
+                Some(target_oid) => repo.load_diff_hunks_between(&base_oid, target_oid, &file.path),
+                None => repo.load_diff_hunks(&base_oid, &file.path),
+            };
+            match result {
+                Ok(hunks) => entries.push(ExportEntry::new(file.clone(), hunks)),
+                Err(e) => {
+                    // 1ファイルでも読み込みに失敗したら、不完全なHTMLを書き出さず全体を中断する。
+                    self.state.error_message = Some(e.to_string());
+                    return;
+                }
+            }
+        }
+
+        let html = build_export_html(&entries);
+
+        let default_name = match &target_oid {
+            Some(target_oid) => format!(
+                "diff-{}-{}.html",
+                short_oid(&base_oid),
+                short_oid(target_oid)
+            ),
+            None => format!("diff-{}.html", short_oid(&base_oid)),
+        };
+
+        let Some(path) = rfd::FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter("HTML", &["html"])
+            .save_file()
+        else {
+            return;
+        };
+
+        if let Err(e) = std::fs::write(&path, html) {
+            self.state.error_message = Some(format!("エクスポートに失敗しました: {}", e));
+        }
+    }
+
     fn load_diff_hunks(&mut self) {
         let Some((base_oid, target_oid)) = self.selected_diff_oids() else {
             return;
@@ -271,6 +332,11 @@ impl eframe::App for App {
         if self.state.needs_file_load {
             self.state.needs_file_load = false;
             self.load_diff_hunks();
+        }
+
+        if self.state.needs_export {
+            self.state.needs_export = false;
+            self.export_diff_html();
         }
 
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
@@ -416,6 +482,7 @@ mod tests {
             needs_load: false,
             needs_diff_load: false,
             needs_file_load: false,
+            needs_export: false,
             error_message: None,
             split_x: 380.0,
             diff_split_y: 160.0,
@@ -466,7 +533,10 @@ mod tests {
     fn first_dropped_path_returns_the_first_entry_and_ignores_the_rest() {
         let first = PathBuf::from("C:/repo/src/main.rs");
         let second = PathBuf::from("C:/repo/src/lib.rs");
-        let files = [dropped_file(Some(first.clone())), dropped_file(Some(second))];
+        let files = [
+            dropped_file(Some(first.clone())),
+            dropped_file(Some(second)),
+        ];
         assert_eq!(first_dropped_path(&files), Some(first));
     }
 
