@@ -42,6 +42,7 @@ pub fn show_commit_list(ui: &mut Ui, state: &mut AppState) {
                 .fill(bg)
                 .inner_margin(egui::Margin::symmetric(6, 4))
                 .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
                     ui.vertical(|ui| {
                         // 1行目: ハッシュ + メッセージ + バッジ
                         ui.horizontal(|ui| {
