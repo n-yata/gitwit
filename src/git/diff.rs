@@ -36,6 +36,70 @@ pub struct DiffHunk {
     pub lines: Vec<DiffLine>,
 }
 
+/// hunk群全体の追加行数・削除行数を集計する（+N/-N表示用）。
+pub fn count_changed_lines(hunks: &[DiffHunk]) -> (usize, usize) {
+    let mut added = 0;
+    let mut deleted = 0;
+    for hunk in hunks {
+        for line in &hunk.lines {
+            match line.kind {
+                DiffLineKind::Added => added += 1,
+                DiffLineKind::Deleted => deleted += 1,
+                DiffLineKind::Context => {}
+            }
+        }
+    }
+    (added, deleted)
+}
+
+/// 左右比較（修正前/修正後）の1行分のセル。
+pub enum SideCell<'a> {
+    Empty,
+    Line(&'a DiffLine),
+}
+
+/// hunk内の行列を「修正前(左) / 修正後(右)」の行ペアに組み替える。
+///
+/// 連続する Deleted 行のまとまりと、それに続く連続する Added 行のまとまりを
+/// 行単位で左右にペアリングする（数が合わない場合は空セルで埋める）。
+pub fn build_side_by_side_rows(lines: &[DiffLine]) -> Vec<(SideCell<'_>, SideCell<'_>)> {
+    let mut rows = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        match lines[i].kind {
+            DiffLineKind::Context => {
+                rows.push((SideCell::Line(&lines[i]), SideCell::Line(&lines[i])));
+                i += 1;
+            }
+            DiffLineKind::Deleted | DiffLineKind::Added => {
+                let mut deleted = Vec::new();
+                while i < lines.len() && lines[i].kind == DiffLineKind::Deleted {
+                    deleted.push(&lines[i]);
+                    i += 1;
+                }
+                let mut added = Vec::new();
+                while i < lines.len() && lines[i].kind == DiffLineKind::Added {
+                    added.push(&lines[i]);
+                    i += 1;
+                }
+                let max_len = deleted.len().max(added.len());
+                for j in 0..max_len {
+                    let left = deleted
+                        .get(j)
+                        .map(|l| SideCell::Line(l))
+                        .unwrap_or(SideCell::Empty);
+                    let right = added
+                        .get(j)
+                        .map(|l| SideCell::Line(l))
+                        .unwrap_or(SideCell::Empty);
+                    rows.push((left, right));
+                }
+            }
+        }
+    }
+    rows
+}
+
 fn commit_tree<'a>(repo: &'a Repository, oid_str: &str) -> Result<Tree<'a>, GitError> {
     let oid = git2::Oid::from_str(oid_str).map_err(GitError::Git2)?;
     let commit = repo.find_commit(oid).map_err(GitError::Git2)?;
@@ -263,6 +327,64 @@ mod tests {
         assert_eq!(added_lines, vec!["line2", "line3"]);
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn count_changed_lines_counts_added_and_deleted_only() {
+        let hunks = vec![DiffHunk {
+            header: "@@ -1,2 +1,2 @@".to_string(),
+            lines: vec![
+                DiffLine {
+                    kind: DiffLineKind::Context,
+                    content: "ctx".to_string(),
+                },
+                DiffLine {
+                    kind: DiffLineKind::Deleted,
+                    content: "old".to_string(),
+                },
+                DiffLine {
+                    kind: DiffLineKind::Added,
+                    content: "new1".to_string(),
+                },
+                DiffLine {
+                    kind: DiffLineKind::Added,
+                    content: "new2".to_string(),
+                },
+            ],
+        }];
+
+        assert_eq!(count_changed_lines(&hunks), (2, 1));
+    }
+
+    #[test]
+    fn build_side_by_side_rows_pairs_deleted_and_added_lines() {
+        let lines = vec![
+            DiffLine {
+                kind: DiffLineKind::Context,
+                content: "ctx".to_string(),
+            },
+            DiffLine {
+                kind: DiffLineKind::Deleted,
+                content: "old".to_string(),
+            },
+            DiffLine {
+                kind: DiffLineKind::Added,
+                content: "new1".to_string(),
+            },
+            DiffLine {
+                kind: DiffLineKind::Added,
+                content: "new2".to_string(),
+            },
+        ];
+
+        let rows = build_side_by_side_rows(&lines);
+        assert_eq!(rows.len(), 3);
+        assert!(matches!(rows[0].0, SideCell::Line(_)));
+        assert!(matches!(rows[0].1, SideCell::Line(_)));
+        assert!(matches!(rows[1].0, SideCell::Line(_)));
+        assert!(matches!(rows[1].1, SideCell::Line(_)));
+        assert!(matches!(rows[2].0, SideCell::Empty));
+        assert!(matches!(rows[2].1, SideCell::Line(_)));
     }
 
     #[test]

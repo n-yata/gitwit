@@ -10,6 +10,7 @@ git2 = "0.19"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 chrono = "0.4"
+rfd = "0.15"
 
 [profile.release]
 opt-level = 3

@@ -2,7 +2,7 @@ use egui::{Color32, RichText, Ui};
 
 use crate::{
     app::AppState,
-    git::{DiffFile, DiffLine, DiffLineKind, FileStatus},
+    git::{build_side_by_side_rows, DiffFile, DiffLineKind, FileStatus, SideCell},
 };
 
 const COLOR_ADDED_BG: Color32 = Color32::from_rgb(221, 244, 220);
@@ -44,54 +44,6 @@ fn file_matches_filter(file: &DiffFile, filter: &str) -> bool {
         }
     }
     false
-}
-
-/// 左右比較（修正前/修正後）の1行分のセル。
-enum SideCell<'a> {
-    Empty,
-    Line(&'a DiffLine),
-}
-
-/// hunk内の行列を「修正前(左) / 修正後(右)」の行ペアに組み替える。
-///
-/// 連続する Deleted 行のまとまりと、それに続く連続する Added 行のまとまりを
-/// 行単位で左右にペアリングする（数が合わない場合は空セルで埋める）。
-fn build_side_by_side_rows(lines: &[DiffLine]) -> Vec<(SideCell<'_>, SideCell<'_>)> {
-    let mut rows = Vec::new();
-    let mut i = 0;
-    while i < lines.len() {
-        match lines[i].kind {
-            DiffLineKind::Context => {
-                rows.push((SideCell::Line(&lines[i]), SideCell::Line(&lines[i])));
-                i += 1;
-            }
-            DiffLineKind::Deleted | DiffLineKind::Added => {
-                let mut deleted = Vec::new();
-                while i < lines.len() && lines[i].kind == DiffLineKind::Deleted {
-                    deleted.push(&lines[i]);
-                    i += 1;
-                }
-                let mut added = Vec::new();
-                while i < lines.len() && lines[i].kind == DiffLineKind::Added {
-                    added.push(&lines[i]);
-                    i += 1;
-                }
-                let max_len = deleted.len().max(added.len());
-                for j in 0..max_len {
-                    let left = deleted
-                        .get(j)
-                        .map(|l| SideCell::Line(l))
-                        .unwrap_or(SideCell::Empty);
-                    let right = added
-                        .get(j)
-                        .map(|l| SideCell::Line(l))
-                        .unwrap_or(SideCell::Empty);
-                    rows.push((left, right));
-                }
-            }
-        }
-    }
-    rows
 }
 
 fn render_side_cell(ui: &mut Ui, cell: &SideCell<'_>) {
@@ -198,7 +150,14 @@ pub fn show_diff_panel(ui: &mut Ui, state: &mut AppState) {
 }
 
 fn show_file_list(ui: &mut Ui, state: &mut AppState) {
-    if state.diff_files.is_empty() {
+    let has_files = !state.diff_files.is_empty();
+    ui.add_enabled_ui(has_files, |ui| {
+        if ui.button("HTMLエクスポート").clicked() {
+            state.needs_export = true;
+        }
+    });
+
+    if !has_files {
         ui.centered_and_justified(|ui| {
             ui.label(
                 RichText::new("変更ファイルなし")

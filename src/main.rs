@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod config;
+mod export;
 mod git;
 mod ui;
 
