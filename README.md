@@ -17,6 +17,12 @@ Get-FileHash .\gitwit-vX.Y.Z-windows-x86_64.zip -Algorithm SHA256
 
 exeはGitHub Actions(`.github/workflows/release.yml`)がタグpushをトリガーに、このリポジトリのソースコードから自動ビルドしたものであり、手元でのビルド物を直接コミットしたものではない。
 
+### 「Windows によって PC が保護されました」と表示される場合
+
+`gitwit.exe` にコード署名を行っていないため、初回実行時に Microsoft Defender SmartScreen が警告を表示する。これは未署名の実行ファイル全般に対する Windows の標準的な挙動であり、ウイルス検出を意味するものではない。
+
+上記のSHA256でハッシュ値を確認した上で実行する場合は、警告ダイアログの「詳細情報」をクリックし、表示される「実行」ボタンを押すと起動できる。
+
 ## ソースからビルドする
 
 ```powershell
