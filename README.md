@@ -42,3 +42,7 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
+
+## ライセンス
+
+[MIT License](LICENSE)
