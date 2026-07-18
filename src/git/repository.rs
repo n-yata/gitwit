@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::{
+    branch::{checkout_branch, current_branch_name, list_local_branches},
     commit::{load_commits, load_commits_for_path, CommitInfo},
     diff::{
         load_diff_files, load_diff_files_between, load_diff_hunks, load_diff_hunks_between,
@@ -60,5 +61,17 @@ impl GitRepository {
         file_path: &str,
     ) -> Result<Vec<DiffHunk>, GitError> {
         load_diff_hunks_between(&self.inner, base_oid_str, target_oid_str, file_path)
+    }
+
+    pub fn list_local_branches(&self) -> Result<Vec<String>, GitError> {
+        list_local_branches(&self.inner)
+    }
+
+    pub fn current_branch_name(&self) -> Result<Option<String>, GitError> {
+        current_branch_name(&self.inner)
+    }
+
+    pub fn checkout_branch(&self, name: &str) -> Result<(), GitError> {
+        checkout_branch(&self.inner, name)
     }
 }

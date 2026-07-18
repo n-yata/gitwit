@@ -1,3 +1,4 @@
+pub mod branch;
 pub mod commit;
 pub mod diff;
 pub mod repository;
@@ -16,6 +17,7 @@ pub enum GitError {
     Git2(git2::Error),
     NotARepository(String),
     EmptyRepository,
+    CheckoutConflict,
 }
 
 impl fmt::Display for GitError {
@@ -26,6 +28,10 @@ impl fmt::Display for GitError {
                 write!(f, "Git リポジトリが見つかりません: {}", path)
             }
             GitError::EmptyRepository => write!(f, "コミットがありません"),
+            GitError::CheckoutConflict => write!(
+                f,
+                "作業ツリーに未コミットの変更があるため、ブランチを切り替えられません"
+            ),
         }
     }
 }
