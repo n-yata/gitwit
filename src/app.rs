@@ -33,6 +33,11 @@ pub struct AppState {
     pub diff_split_y: f32,
     /// ドラッグ&ドロップ等から特定ファイル/フォルダを指定した場合の絞り込み対象パス。
     pub file_filter: Option<String>,
+    /// 現在の HEAD が指すブランチ名。detached HEAD または空リポジトリの場合は `None`。
+    pub current_branch: Option<String>,
+    pub local_branches: Vec<String>,
+    /// UI から要求された切り替え先ブランチ名。`App::update` が検知して checkout を実行する。
+    pub pending_branch_switch: Option<String>,
 }
 
 impl AppState {
@@ -56,6 +61,9 @@ impl AppState {
             split_x: 380.0,
             diff_split_y: 160.0,
             file_filter: None,
+            current_branch: None,
+            local_branches: Vec::new(),
+            pending_branch_switch: None,
         }
     }
 }
@@ -122,6 +130,7 @@ impl App {
                     save_config(&AppConfig {
                         last_repo_path: Some(path.to_string_lossy().to_string()),
                     });
+                    self.load_branch_state(&repo);
                     self.repo = Some(repo);
                 }
                 Err(e) => {
@@ -136,6 +145,41 @@ impl App {
                 self.repo = None;
             }
         }
+    }
+
+    /// 現在のブランチ名・ローカルブランチ一覧を状態へ反映する。
+    /// 取得に失敗しても致命的ではないため、コミット一覧の表示自体は継続する。
+    fn load_branch_state(&mut self, repo: &GitRepository) {
+        self.state.current_branch = repo.current_branch_name().unwrap_or(None);
+        self.state.local_branches = repo.list_local_branches().unwrap_or_default();
+    }
+
+    fn switch_branch(&mut self, branch_name: String) {
+        // GitRepository を self から一時的に取り出すことで、checkout 後の self.state
+        // 更新と repo の参照利用を借用エラーなく両立させる。
+        let Some(repo) = self.repo.take() else {
+            return;
+        };
+        match repo.checkout_branch(&branch_name) {
+            Ok(()) => match self.load_commits_for_state(&repo) {
+                Ok(commits) => {
+                    self.state.commits = commits;
+                    self.state.selected_commits.clear();
+                    self.state.diff_files = Vec::new();
+                    self.state.selected_file = None;
+                    self.state.diff_hunks = Vec::new();
+                    self.state.error_message = None;
+                    self.load_branch_state(&repo);
+                }
+                Err(e) => {
+                    self.state.error_message = Some(e.to_string());
+                }
+            },
+            Err(e) => {
+                self.state.error_message = Some(e.to_string());
+            }
+        }
+        self.repo = Some(repo);
     }
 
     fn load_commits_for_state(
@@ -339,6 +383,10 @@ impl eframe::App for App {
             self.export_diff_html();
         }
 
+        if let Some(branch_name) = self.state.pending_branch_switch.take() {
+            self.switch_branch(branch_name);
+        }
+
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             show_toolbar(ui, &mut self.state);
         });
@@ -487,6 +535,9 @@ mod tests {
             split_x: 380.0,
             diff_split_y: 160.0,
             file_filter: None,
+            current_branch: None,
+            local_branches: Vec::new(),
+            pending_branch_switch: None,
         }
     }
 
