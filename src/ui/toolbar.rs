@@ -40,6 +40,7 @@ pub fn show_toolbar(ui: &mut Ui, state: &mut AppState) {
         if state.repo_path.is_some() {
             ui.separator();
             show_branch_selector(ui, state);
+            show_fetch_button(ui, state);
         }
     });
 }
@@ -59,5 +60,24 @@ fn show_branch_selector(ui: &mut Ui, state: &mut AppState) {
                     state.pending_branch_switch = Some(branch_name);
                 }
             }
+
+            if !state.remote_branches.is_empty() {
+                ui.separator();
+                for branch_name in state.remote_branches.clone() {
+                    // リモートブランチは一覧表示のみ。チェックアウトは対象外なので選択不可にする。
+                    ui.add_enabled(false, egui::SelectableLabel::new(false, &branch_name));
+                }
+            }
         });
+}
+
+fn show_fetch_button(ui: &mut Ui, state: &mut AppState) {
+    ui.add_enabled_ui(!state.is_fetching, |ui| {
+        if ui.button("⟳ リモート取得").clicked() {
+            state.needs_fetch = true;
+        }
+    });
+    if state.is_fetching {
+        ui.spinner();
+    }
 }

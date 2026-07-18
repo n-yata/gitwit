@@ -1,6 +1,7 @@
 pub mod branch;
 pub mod commit;
 pub mod diff;
+pub mod remote;
 pub mod repository;
 
 pub use commit::{format_relative_time, CommitInfo};
