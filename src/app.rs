@@ -1,10 +1,11 @@
 use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
 
 use crate::{
     cli::resolve_target,
     config::{load_config, save_config, AppConfig},
     export::{build_export_html, ExportEntry},
-    git::{CommitInfo, DiffFile, DiffHunk, GitRepository},
+    git::{CommitInfo, DiffFile, DiffHunk, GitError, GitRepository},
     ui::{commit_list::show_commit_list, diff_panel::show_diff_panel, toolbar::show_toolbar},
 };
 
@@ -13,6 +14,12 @@ const COMMIT_LIMIT: usize = 1000;
 pub struct App {
     pub state: AppState,
     repo: Option<GitRepository>,
+    fetch_rx: Option<Receiver<FetchOutcome>>,
+}
+
+/// バックグラウンドの fetch スレッドから UI スレッドへ渡す結果。
+pub struct FetchOutcome {
+    pub result: Result<Vec<String>, GitError>,
 }
 
 pub struct AppState {
@@ -38,6 +45,12 @@ pub struct AppState {
     pub local_branches: Vec<String>,
     /// UI から要求された切り替え先ブランチ名。`App::update` が検知して checkout を実行する。
     pub pending_branch_switch: Option<String>,
+    /// fetch 済みのリモートブランチ名（"origin/main" 形式）。
+    pub remote_branches: Vec<String>,
+    /// UI がセットし、`App::update` が検知してバックグラウンド fetch を起動するフラグ。
+    pub needs_fetch: bool,
+    /// fetch 実行中かどうか（多重起動防止・UI上のボタン無効化に使う）。
+    pub is_fetching: bool,
 }
 
 impl AppState {
@@ -64,6 +77,9 @@ impl AppState {
             current_branch: None,
             local_branches: Vec::new(),
             pending_branch_switch: None,
+            remote_branches: Vec::new(),
+            needs_fetch: false,
+            is_fetching: false,
         }
     }
 }
@@ -112,6 +128,7 @@ impl App {
         Self {
             state: AppState::new(),
             repo: None,
+            fetch_rx: None,
         }
     }
 
@@ -180,6 +197,43 @@ impl App {
             }
         }
         self.repo = Some(repo);
+    }
+
+    /// リモートの fetch をバックグラウンドスレッドで起動する。
+    /// `git2::Repository` はスレッドを跨げない(`!Send`)ため、スレッド内で
+    /// `GitRepository::open` を新規に開き直す。結果は channel 経由で受け取る。
+    fn start_fetch(&mut self, ctx: &egui::Context) {
+        if self.state.is_fetching {
+            return;
+        }
+        let Some(path) = self.state.repo_path.clone() else {
+            return;
+        };
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.fetch_rx = Some(rx);
+        self.state.is_fetching = true;
+
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let result = (|| {
+                let repo = GitRepository::open(&path)?;
+                repo.fetch_all_remotes()?;
+                repo.list_remote_branches()
+            })();
+            let _ = tx.send(FetchOutcome { result });
+            ctx.request_repaint();
+        });
+    }
+
+    /// fetch スレッドから受信した結果を state へ反映する。
+    fn apply_fetch_outcome(&mut self, outcome: FetchOutcome) {
+        self.state.is_fetching = false;
+        self.fetch_rx = None;
+        match outcome.result {
+            Ok(names) => self.state.remote_branches = names,
+            Err(e) => self.state.error_message = Some(e.to_string()),
+        }
     }
 
     fn load_commits_for_state(
@@ -358,6 +412,12 @@ fn setup_japanese_font(ctx: &egui::Context) {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(rx) = &self.fetch_rx {
+            if let Ok(outcome) = rx.try_recv() {
+                self.apply_fetch_outcome(outcome);
+            }
+        }
+
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
         if let Some(path) = first_dropped_path(&dropped_files) {
             self.apply_dropped_path(path);
@@ -385,6 +445,11 @@ impl eframe::App for App {
 
         if let Some(branch_name) = self.state.pending_branch_switch.take() {
             self.switch_branch(branch_name);
+        }
+
+        if self.state.needs_fetch {
+            self.state.needs_fetch = false;
+            self.start_fetch(ctx);
         }
 
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
@@ -538,6 +603,9 @@ mod tests {
             current_branch: None,
             local_branches: Vec::new(),
             pending_branch_switch: None,
+            remote_branches: Vec::new(),
+            needs_fetch: false,
+            is_fetching: false,
         }
     }
 
@@ -545,7 +613,42 @@ mod tests {
         App {
             state: test_state(),
             repo: None,
+            fetch_rx: None,
         }
+    }
+
+    #[test]
+    fn apply_fetch_outcome_success_updates_remote_branches_and_clears_fetching_state() {
+        let mut app = test_app();
+        app.state.is_fetching = true;
+        let (_tx, rx) = std::sync::mpsc::channel();
+        app.fetch_rx = Some(rx);
+
+        app.apply_fetch_outcome(FetchOutcome {
+            result: Ok(vec!["origin/main".to_string()]),
+        });
+
+        assert_eq!(app.state.remote_branches, vec!["origin/main".to_string()]);
+        assert!(!app.state.is_fetching);
+        assert!(app.fetch_rx.is_none());
+        assert!(app.state.error_message.is_none());
+    }
+
+    #[test]
+    fn apply_fetch_outcome_failure_sets_error_message_and_clears_fetching_state() {
+        let mut app = test_app();
+        app.state.is_fetching = true;
+        let (_tx, rx) = std::sync::mpsc::channel();
+        app.fetch_rx = Some(rx);
+
+        app.apply_fetch_outcome(FetchOutcome {
+            result: Err(GitError::CheckoutConflict),
+        });
+
+        assert!(app.state.remote_branches.is_empty());
+        assert!(!app.state.is_fetching);
+        assert!(app.fetch_rx.is_none());
+        assert!(app.state.error_message.is_some());
     }
 
     fn dropped_file(path: Option<PathBuf>) -> egui::DroppedFile {

@@ -7,6 +7,7 @@ use super::{
         load_diff_files, load_diff_files_between, load_diff_hunks, load_diff_hunks_between,
         DiffFile, DiffHunk,
     },
+    remote::{fetch_all_remotes, list_remote_branches},
     GitError,
 };
 
@@ -73,5 +74,13 @@ impl GitRepository {
 
     pub fn checkout_branch(&self, name: &str) -> Result<(), GitError> {
         checkout_branch(&self.inner, name)
+    }
+
+    pub fn fetch_all_remotes(&self) -> Result<(), GitError> {
+        fetch_all_remotes(&self.inner)
+    }
+
+    pub fn list_remote_branches(&self) -> Result<Vec<String>, GitError> {
+        list_remote_branches(&self.inner)
     }
 }
